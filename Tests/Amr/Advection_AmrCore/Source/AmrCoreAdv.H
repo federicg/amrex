@@ -20,7 +20,6 @@
 #include <memory>
 #include <string>
 
-
 class AmrCoreAdv
     : public amrex::AmrCore
 {
@@ -32,6 +31,7 @@ public:
     // constructor - reads in parameters from inputs file
     //             - sizes multilevel arrays and data structures
     AmrCoreAdv ();
+    AmrCoreAdv (amrex::Geometry const& level_0_geom, int index_core, amrex::AmrInfo const& amr_info);
     ~AmrCoreAdv () override;
 
     AmrCoreAdv (AmrCoreAdv&& rhs) noexcept = default;
@@ -90,8 +90,89 @@ public:
     amrex::AmrTracerParticleContainer* theTracerPC () { return TracerPC.get(); }
 #endif
 
+    amrex::Vector<int> istep;      // which step?
+
+    // do we subcycle in time?
+    int do_subcycle = 1;
+
+    // write plotfile to disk
+    void WritePlotFile () const;
+
+    // write checkpoint file to disk
+    void WriteCheckpointFile () const;
+
+    // a wrapper for EstTimeStep
+    void ComputeDt ();
+
+    amrex::Vector<amrex::Real> t_new;
+    amrex::Vector<amrex::Real> dt;
+
+    // maximum number of steps and stop time
+    amrex::Real stop_time = std::numeric_limits<amrex::Real>::max();
+    int max_step = std::numeric_limits<int>::max();
+
+    // Advance a level by dt - includes a recursive call for finer levels
+    void timeStepWithSubcycling (int lev, amrex::Real time, int iteration);
+
+    // Advance all levels by the same dt
+    void timeStepNoSubcycling (amrex::Real time, int iteration);
+
+    amrex::Vector<amrex::MultiFab> phi_new;
+    amrex::Vector<amrex::MultiFab> phi_old;
+
+    std::array<amrex::Vector<amrex::MultiFab>, 4> array_vec_mf_g;
+
+    // plotfile prefix and frequency
+    std::string plot_file {"plt"};
+    int plot_int = -1;
+
+    // checkpoint prefix and frequency
+    std::string chk_file {"chk"};
+    int chk_int = -1;
+
+    // Getter function for `finest_level`
+    int getFinestLevel() const;
+
+    std::array<const AmrCoreAdv*, 4> other_core;  // Pointer to another AmrCoreAdv
+
+    void setOtherCore(const AmrCoreAdv*, const AmrCoreAdv*, const AmrCoreAdv*, const AmrCoreAdv*);
+
+    //void setOffsetCore(amrex::NonLocalBC::MultiBlockIndexMapping, amrex::Box);
+
+    struct 
+    OnesidedMultiBlockBoundaryFn {
+      AmrCoreAdv* dest;
+      const AmrCoreAdv* src;
+      amrex::MultiBlockIndexMapping dtos;
+      amrex::Box boundary_to_fill;
+      std::unique_ptr<amrex::MultiBlockCommMetaData> cmd{};
+      amrex::FabArrayBase::BDKey cached_dest_bd_key{};
+      amrex::FabArrayBase::BDKey cached_src_bd_key{};
+      amrex::NonLocalBC::ApplyDtosAndProjectionOnReciever<amrex::MultiBlockIndexMapping,
+                                       amrex::NonLocalBC::MapComponents<amrex::NonLocalBC::Identity, amrex::NonLocalBC::SwapComponents<1, 2>>>
+          packing{amrex::NonLocalBC::PackComponents{0, 0, 1}, dtos}; // the 1 refers to the number of components in ultifab, so to the number of staate variables
+
+      AMREX_NODISCARD amrex::CommHandler FillBoundary_nowait();
+      void FillBoundary_do_local_copy() const;
+      void FillBoundary_finish(amrex::CommHandler handler) const;
+    };
+
+    struct 
+    FillBoundaryFn {
+        OnesidedMultiBlockBoundaryFn boundary;
+        void operator()();
+    };
+
+    void FillRightGhostWithLeftBoundary(amrex::MultiFab& mf);
+    void create_ghost_multifabs(int);
+
+
+    std::array<amrex::NonLocalBC::MultiBlockIndexMapping, 4> dtos;
+    std::array<amrex::Box, 4> boundary_to_fill; 
 
 private:
+
+    int index_core;
 
     ////////////////
     // private member functions
@@ -120,15 +201,6 @@ private:
     void GetData (int lev, amrex::Real time, amrex::Vector<amrex::MultiFab*>& data,
                   amrex::Vector<amrex::Real>& datatime);
 
-    // Advance a level by dt - includes a recursive call for finer levels
-    void timeStepWithSubcycling (int lev, amrex::Real time, int iteration);
-
-    // Advance all levels by the same dt
-    void timeStepNoSubcycling (amrex::Real time, int iteration);
-
-    // a wrapper for EstTimeStep
-    void ComputeDt ();
-
     // get plotfile name
     [[nodiscard]] std::string PlotFileName (int lev) const;
 
@@ -138,30 +210,24 @@ private:
     // set plotfile variables names
     [[nodiscard]] static amrex::Vector<std::string> PlotFileVarNames ();
 
-    // write plotfile to disk
-    void WritePlotFile () const;
-
-    // write checkpoint file to disk
-    void WriteCheckpointFile () const;
-
     // read checkpoint file from disk
     void ReadCheckpointFile ();
 
     ////////////////
     // private data members
 
-    amrex::Vector<int> istep;      // which step?
+    //amrex::Vector<int> istep;      // which step?
     amrex::Vector<int> nsubsteps;  // how many substeps on each level?
 
     // keep track of old time, new time, and time step at each level
-    amrex::Vector<amrex::Real> t_new;
+    //amrex::Vector<amrex::Real> t_new;
     amrex::Vector<amrex::Real> t_old;
-    amrex::Vector<amrex::Real> dt;
+    //amrex::Vector<amrex::Real> dt;
 
     // array of multifabs to store the solution at each level of refinement
     // after advancing a level we use "swap".
-    amrex::Vector<amrex::MultiFab> phi_new;
-    amrex::Vector<amrex::MultiFab> phi_old;
+    //amrex::Vector<amrex::MultiFab> phi_new;
+    //amrex::Vector<amrex::MultiFab> phi_old;
 
     // this is essentially a 2*DIM integer array storing the physical boundary
     // condition types at the lo/hi walls in each direction
@@ -184,10 +250,6 @@ private:
     ////////////////
     // runtime parameters
 
-    // maximum number of steps and stop time
-    int max_step = std::numeric_limits<int>::max();
-    amrex::Real stop_time = std::numeric_limits<amrex::Real>::max();
-
     // if >= 0 we restart from a checkpoint
     std::string restart_chkfile;
 
@@ -201,16 +263,8 @@ private:
     // hyperbolic refluxing as part of multilevel synchronization
     int do_reflux = 1;
 
-    // do we subcycle in time?
-    int do_subcycle = 1;
-
-    // plotfile prefix and frequency
-    std::string plot_file {"plt"};
-    int plot_int = -1;
-
-    // checkpoint prefix and frequency
-    std::string chk_file {"chk"};
-    int chk_int = -1;
+    // folder and core prefix
+    std::string core_prefix {"sol/core"};
 
     //number of ghost cells on facevel
     int nghost = 2;

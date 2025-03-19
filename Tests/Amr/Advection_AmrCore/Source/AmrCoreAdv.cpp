@@ -18,7 +18,8 @@ using namespace amrex;
 // constructor - reads in parameters from inputs file
 //             - sizes multilevel arrays and data structures
 //             - initializes BCRec boundary condition object
-AmrCoreAdv::AmrCoreAdv ()
+AmrCoreAdv::AmrCoreAdv (Geometry const& level_0_geom, int index_core,
+                     AmrInfo const& amr_info = AmrInfo()) : AmrCore(level_0_geom, amr_info), index_core(index_core), other_core{nullptr, nullptr, nullptr, nullptr}
 {
     ReadParameters();
 
@@ -44,6 +45,13 @@ AmrCoreAdv::AmrCoreAdv ()
     phi_new.resize(nlevs_max);
     phi_old.resize(nlevs_max);
 
+    // 
+    array_vec_mf_g[0].resize(nlevs_max);
+    array_vec_mf_g[1].resize(nlevs_max);
+    array_vec_mf_g[2].resize(nlevs_max);
+    array_vec_mf_g[3].resize(nlevs_max);
+
+
     facevel.resize(nlevs_max);
 
     // periodic boundaries
@@ -55,6 +63,9 @@ AmrCoreAdv::AmrCoreAdv ()
     int bc_lo[] = {amrex::BCType::foextrap, amrex::BCType::foextrap, amrex::BCType::foextrap};
     int bc_hi[] = {amrex::BCType::foextrap, amrex::BCType::foextrap, amrex::BCType::foextrap};
 */
+
+    //std::cout << level_0_geom.isPeriodic(0) << " " << BCType::int_dir << " " << BCType::foextrap << std::endl;
+    //exit(1);
 
     bcs.resize(1);     // Setup 1-component
     for (int idim = 0; idim < AMREX_SPACEDIM; ++idim)
@@ -264,7 +275,7 @@ AmrCoreAdv::RemakeLevel (int lev, Real time, const BoxArray& ba,
                          const DistributionMapping& dm)
 {
     const int ncomp = phi_new[lev].nComp();
-    const int ng = phi_new[lev].nGrow();
+    const int ng    = phi_new[lev].nGrow();
 
     MultiFab new_state(ba, dm, ncomp, ng);
     MultiFab old_state(ba, dm, ncomp, ng);
@@ -456,12 +467,312 @@ AmrCoreAdv::AverageDownTo (int crse_lev)
                         0, phi_new[crse_lev].nComp(), refRatio(crse_lev));
 }
 
+// set the pointer to another core
+void 
+AmrCoreAdv::setOtherCore(const AmrCoreAdv* other_0, const AmrCoreAdv* other_1, const AmrCoreAdv* other_2, const AmrCoreAdv* other_3) {
+    other_core[0] = other_0; // communication right
+    other_core[1] = other_1; // communication left
+    other_core[2] = other_2; // communication up
+    other_core[3] = other_3; // communication down
+}
+
+
+//
+void 
+AmrCoreAdv::create_ghost_multifabs(int ng) {
+
+    for (int lev = 0; lev <= finest_level; ++lev) {
+        // consider in the future to put the .define outside the loop in time as the definition should be always the same, right?
+        array_vec_mf_g[0][lev].define(other_core[0]->phi_new[lev].boxArray(), other_core[0]->phi_new[lev].DistributionMap(), other_core[0]->phi_new[lev].nComp(), ng);
+        array_vec_mf_g[0][lev].setVal(0);
+        array_vec_mf_g[0][lev].ParallelCopy(other_core[0]->phi_new[lev]);
+        array_vec_mf_g[0][lev].FillBoundary();
+
+        array_vec_mf_g[1][lev].define(other_core[1]->phi_new[lev].boxArray(), other_core[1]->phi_new[lev].DistributionMap(), other_core[1]->phi_new[lev].nComp(), ng);
+        array_vec_mf_g[1][lev].setVal(0);
+        array_vec_mf_g[1][lev].ParallelCopy(other_core[1]->phi_new[lev]);
+        array_vec_mf_g[1][lev].FillBoundary();
+
+        array_vec_mf_g[2][lev].define(other_core[2]->phi_new[lev].boxArray(), other_core[2]->phi_new[lev].DistributionMap(), other_core[2]->phi_new[lev].nComp(), ng);
+        array_vec_mf_g[2][lev].setVal(0);
+        array_vec_mf_g[2][lev].ParallelCopy(other_core[2]->phi_new[lev]);
+        array_vec_mf_g[2][lev].FillBoundary();
+
+        array_vec_mf_g[3][lev].define(other_core[3]->phi_new[lev].boxArray(), other_core[3]->phi_new[lev].DistributionMap(), other_core[3]->phi_new[lev].nComp(), ng);
+        array_vec_mf_g[3][lev].setVal(0);
+        array_vec_mf_g[3][lev].ParallelCopy(other_core[3]->phi_new[lev]);
+        array_vec_mf_g[3][lev].FillBoundary();
+    }
+/*
+    for (MFIter mfi(array_vec_mf_g[0][0], TilingIfNotGPU()); mfi.isValid(); ++mfi)
+    {
+        const Box& bx_dst = mfi.growntilebox(array_vec_mf_g[0][0].nGrow());
+        const auto& mf = array_vec_mf_g[0][0].array(mfi); 
+        amrex::ParallelFor(bx_dst, [=] AMREX_GPU_DEVICE(int i, int j, int k)
+        {
+            //if (mf(i, j, k)!=0)
+            //std::cout << i << " " << j << " " << k << " " << mf(i, j, k) << " " << std::endl;
+        });
+    }
+
+        for (MFIter mfi(phi_new[0], TilingIfNotGPU()); mfi.isValid(); ++mfi)
+    {
+        const Box& bx_dst = mfi.growntilebox(phi_new[0].nGrow());
+        const auto& mf = phi_new[0].array(mfi); 
+        amrex::ParallelFor(bx_dst, [=] AMREX_GPU_DEVICE(int i, int j, int k)
+        {
+            if (mf(i, j, k)!=0)
+            std::cout << i << " " << j << " " << k << " " << mf(i, j, k) << " " << std::endl;
+        });
+    }*/
+
+}
+
+//
+AMREX_NODISCARD CommHandler 
+AmrCoreAdv::OnesidedMultiBlockBoundaryFn::FillBoundary_nowait() {
+    if (!cmd || cached_dest_bd_key != dest->phi_new[0].getBDKey() || cached_src_bd_key != src->phi_new[0].getBDKey()) {
+        cmd = std::make_unique<MultiBlockCommMetaData>(dest->phi_new[0], boundary_to_fill, src->phi_new[0], dest->phi_new[0].nGrowVect(), dtos);
+        cached_dest_bd_key = dest->phi_new[0].getBDKey();
+        cached_src_bd_key = src->phi_new[0].getBDKey();
+    }
+
+    return ParallelCopy_nowait(amrex::NonLocalBC::no_local_copy, dest->phi_new[0], src->phi_new[0], *cmd, packing);
+  }
+
+void 
+AmrCoreAdv::OnesidedMultiBlockBoundaryFn::FillBoundary_do_local_copy() const {
+    AMREX_ASSERT(cmd && cached_dest_bd_key == dest->phi_new[0].getBDKey() && cached_src_bd_key == src->phi_new[0].getBDKey());
+    if (cmd->m_LocTags && !cmd->m_LocTags->empty()) {
+        LocalCopy(packing, dest->phi_new[0], src->phi_new[0], *cmd->m_LocTags);
+    }
+  }
+
+void 
+AmrCoreAdv::OnesidedMultiBlockBoundaryFn::FillBoundary_finish(CommHandler handler) const {
+    ParallelCopy_finish(dest->phi_new[0], std::move(handler), *cmd, packing); // NOLINT(performance-move-const-arg)
+}
+
+
+void 
+AmrCoreAdv::FillBoundaryFn::operator()() {
+    CommHandler comms = boundary.FillBoundary_nowait();
+    boundary.FillBoundary_do_local_copy();
+    boundary.FillBoundary_finish(std::move(comms)); 
+};
+
+
+void 
+AmrCoreAdv::FillRightGhostWithLeftBoundary(amrex::MultiFab& mf)
+{
+    //Box domain_box = geom.Domain(); // Physical domain
+
+    //mf.copy(other_core[0]->phi_new[0], 0, 0, mf.nComp(), mf.nGrow());
+
+    //std::cout << other_core[0]->phi_old[0].nGrow() << " " << array_vec_mf_g[0][0].nGrow() << std::endl;
+    //exit(1);
+
+
+    // array_vec_mf_g[0][0]
+    for (int mfi=0; mfi<array_vec_mf_g[0][0].local_size(); ++mfi) //(MFIter mfi(other_core[0]->phi_old[0], TilingIfNotGPU()); mfi.isValid(); ++mfi)
+    {
+        auto src_box = amrex::grow(array_vec_mf_g[0][0].boxArray()[mfi], array_vec_mf_g[0][0].nGrow()); //array_vec_mf_g[0][0].boxArray().grow(3); // amrex::grow(array_vec_mf_g[0][0].boxArray()[mfi], array_vec_mf_g[0][0].nGrow()); 
+
+        const auto& mf = array_vec_mf_g[0][0].const_array(mfi); 
+        amrex::ParallelFor(src_box, [=] AMREX_GPU_DEVICE(int i, int j, int k)
+        {
+            if (mf(i, j, k)!=0)
+            std::cout << i << " " << j << " " << k << " " << mf(i, j, k) << " aaa " << src_box << std::endl;
+        });
+    }
+
+    for (int mfi=0; mfi<array_vec_mf_g[0][0].local_size(); ++mfi) //(MFIter mfi(other_core[0]->phi_old[0], TilingIfNotGPU()); mfi.isValid(); ++mfi)
+    {
+        auto src_box = amrex::grow(array_vec_mf_g[0][0].boxArray()[mfi], array_vec_mf_g[0][0].nGrow()); //array_vec_mf_g[0][0].boxArray().grow(3); // amrex::grow(array_vec_mf_g[0][0].boxArray()[mfi], array_vec_mf_g[0][0].nGrow()); 
+        
+        auto iv = IntVect{AMREX_D_DECL(-1, 0, 0)};
+        src_box.shift(iv);
+
+        array_vec_mf_g[0][0].setVal(0); 
+
+        const auto& mf = array_vec_mf_g[0][0].const_array(mfi); 
+        amrex::ParallelFor(src_box, [=] AMREX_GPU_DEVICE(int i, int j, int k)
+        { 
+            if (mf(i, j, k)!=0)
+            std::cout << i << " " << j << " " << k << " " << mf(i, j, k) << " bbb " << src_box << std::endl;
+        });
+    }
+    exit(1);
+/*
+    for (int mfi=0; mfi<other_core[0]->phi_new[0].local_size(); ++mfi) //(MFIter mfi(other_core[0]->phi_old[0], TilingIfNotGPU()); mfi.isValid(); ++mfi)
+    {
+        auto src_box = amrex::grow(other_core[0]->phi_new[0].boxArray()[mfi], other_core[0]->phi_new[0].nGrow()); //array_vec_mf_g[0][0].boxArray().grow(3); // amrex::grow(array_vec_mf_g[0][0].boxArray()[mfi], array_vec_mf_g[0][0].nGrow()); 
+        //const Box& bx_dst = mfi.growntilebox(other_core[0]->phi_old[0].nGrow());
+        const auto& mf = other_core[0]->phi_new[0].const_array(mfi); 
+        amrex::ParallelFor(src_box, [=] AMREX_GPU_DEVICE(int i, int j, int k)
+        {
+            //if (mf(i, j, k)!=0)
+            //std::cout << i << " " << j << " " << k << " " << mf(i, j, k) << " " << other_core[0]->phi_new[0].nGrow() << std::endl;
+        });
+    }
+
+    for (int mfi=0; mfi<other_core[0]->phi_old[0].local_size(); ++mfi) //(MFIter mfi(other_core[0]->phi_old[0], TilingIfNotGPU()); mfi.isValid(); ++mfi)
+    {
+        auto src_box = amrex::grow(other_core[0]->phi_old[0].boxArray()[mfi], other_core[0]->phi_old[0].nGrow()); //array_vec_mf_g[0][0].boxArray().grow(3); // amrex::grow(array_vec_mf_g[0][0].boxArray()[mfi], array_vec_mf_g[0][0].nGrow()); 
+        //const Box& bx_dst = mfi.growntilebox(other_core[0]->phi_old[0].nGrow());
+        const auto& mf = other_core[0]->phi_old[0].const_array(mfi); 
+        amrex::ParallelFor(src_box, [=] AMREX_GPU_DEVICE(int i, int j, int k)
+        {
+            //if (mf(i, j, k)!=0)
+            //std::cout << i << " " << j << " " << k << " " << mf(i, j, k) << " " << other_core[0]->phi_old[0].nGrow() << std::endl;
+        });
+    }*/
+
+    for (MFIter mfi(mf, TilingIfNotGPU()); mfi.isValid(); ++mfi)
+    {
+        const Box& bx_dst = mfi.growntilebox(mf.nGrow());  // Destination box
+        const auto& mf_arr = mf.array(mfi);         // Destination array
+
+        for (int ii=1; ii<2; ii++)
+        {
+
+            for (int mfi_src=0; mfi_src<array_vec_mf_g[ii][0].local_size(); ++mfi_src)
+            {
+                auto src_box = amrex::grow(array_vec_mf_g[ii][0].boxArray()[mfi_src], array_vec_mf_g[ii][0].nGrow());
+                auto iv = IntVect{AMREX_D_DECL(-64, 0, 0)};
+                src_box.shift(iv);
+
+                const auto& phi_arr = array_vec_mf_g[ii][0].const_array(mfi_src); 
+
+                amrex::ParallelFor(src_box & bx_dst, [=] AMREX_GPU_DEVICE(int i, int j, int k)
+                {
+                    if (phi_arr(i, j, k)!=0)
+                    {
+                        //std::cout << i << " " << j << " " << k << " " << phi_arr(i, j, k) << " " << std::endl;
+                    }
+                    //std::cout << geom[0].Domain().smallEnd() << " " << geom[0].Domain().bigEnd() << std::endl;
+                    //exit(1);
+                    if (i<geom[0].Domain().smallEnd(0))
+                    {
+                        if (phi_arr(i, j, k)!=0) 
+                        {
+                            //std::cout << i << " " << j << " " << phi_arr(i, j, k) << std::endl;
+                        }
+                        mf_arr(i, j, k) = 0;//phi_arr(i, j, k);
+                    }
+                });
+            }
+            
+        }
+
+        for (int ii=0; ii<1; ii++)
+        {
+
+            for (int mfi_src=0; mfi_src<array_vec_mf_g[ii][0].local_size(); ++mfi_src)
+            {
+                auto src_box = amrex::grow(array_vec_mf_g[ii][0].boxArray()[mfi_src], array_vec_mf_g[ii][0].nGrow());
+                auto iv = IntVect{AMREX_D_DECL(64, 0, 0)};
+                src_box.shift(iv);
+
+                const auto& phi_arr = array_vec_mf_g[ii][0].const_array(mfi_src); 
+
+                amrex::ParallelFor(src_box & bx_dst, [=] AMREX_GPU_DEVICE(int i, int j, int k)
+                {
+                    if (phi_arr(i, j, k)!=0)
+                    {
+                        //std::cout << i << " " << j << " " << k << " " << phi_arr(i, j, k) << " " << std::endl;
+                    }
+                    if (i>geom[0].Domain().bigEnd(0))
+                    {
+                        if (phi_arr(i, j, k)!=0) 
+                        {
+                            //std::cout << i << " " << j << " " << phi_arr(i, j, k) << std::endl;
+                        }
+                        mf_arr(i, j, k) = 0;//phi_arr(i, j, k);
+                    }
+                });
+            }
+            
+        }
+    }
+};
+
+/*
+
+    for (MFIter mfi(mf, TilingIfNotGPU()); mfi.isValid(); ++mfi)
+    {
+        const Box& bx_dst = mfi.growntilebox(mf.nGrow());  // Destination box
+        //const Box& bx_dst = mfi.tilebox();  // Destination box
+        const auto& mf_arr = mf.array(mfi);         // Destination array
+
+        for (int ii=1; ii<2; ii++)
+        {
+
+            std::vector<std::pair<int, Box>> isects;  // Correct type
+            auto src_box = array_vec_mf_g[ii][0].boxArray(); // array_vec_mf_g
+            //auto src_box = amrex::grow(array_vec_mf_g[ii][0].boxArray()[mfi], array_vec_mf_g[0][0].nGrow());
+            //auto src_box = other_core[ii]->phi_old[0].boxArray();
+
+            //std::cout << 
+
+            if (mf.boxArray() != src_box) {
+                amrex::Print() << "❌ MultiFabs have different BoxArrays!" << std::endl;
+            }
+
+            src_box.shift(dtos[ii].offset); // translate the box 
+            src_box.intersections(bx_dst, isects); // compute intersections between boxes
+
+            //std::cout << src_box << " " << bx_dst << std::endl;
+            for (const auto& [idx, bx_src] : isects)  // Structured binding (C++17)
+            {
+                //std::cout << idx << " " << bx_src << " " << bx_dst << std::endl;
+            
+                //const auto& phi_arr = other_core[ii]->phi_old[0].const_array(idx);  
+                const auto& phi_arr = array_vec_mf_g[ii][0].const_array(idx);
+
+                Box bx_intersect = bx_dst & bx_src;
+                if (!bx_intersect.ok()) continue;  // Skip if no overlap
+
+                amrex::ParallelFor(bx_intersect, [=] AMREX_GPU_DEVICE(int i, int j, int k)
+                {
+                    if (phi_arr(i, j, k)!=0)
+                    std::cout << i << " " << j << " " << k << " " << phi_arr(i, j, k) << " " << bx_intersect << std::endl;
+                    mf_arr(i, j, k) = phi_arr(i, j, k);
+                });
+            }
+
+*/
+
+
+/*
+            const auto& phi_arr = array_vec_mf_g[ii][0].const_array(mfi);  
+
+            std::cout << phi_arr(0, 8, 0) << " qui " << mf.boxArray() << " " << src_box << " " << bx_dst << " " << boundary_to_fill[ii] << std::endl;
+
+            // Check if the MFIter is valid for this tile before doing the parallel for
+            amrex::ParallelFor(boundary_to_fill[ii] & bx_dst, [=] AMREX_GPU_DEVICE(int i, int j, int k)
+            {
+                // Print the indices and values
+                std::cout << i << " " << j << " " << k << " " << phi_arr(i, j, k) << std::endl;
+
+                // Copy data from phi_arr to mf_arr
+                mf_arr(i, j, k) = 0;//phi_arr(i, j, k);
+            });*/
+            //src_box.shift(-dtos[ii].offset); // translate the box 
+        //}
+
+
+    //}
+//exit(1);
+
+
 // compute a new multifab by coping in phi from valid region and filling ghost cells
 // works for single level and 2-level cases (fill fine grid ghost by interpolating from coarse)
 void
 AmrCoreAdv::FillPatch (int lev, Real time, MultiFab& mf, int icomp, int ncomp,
                        FillPatchType fptype)
 {
+    // Modify here for the boundary conditions
     if (lev == 0)
     {
         Vector<MultiFab*> smf;
@@ -471,16 +782,22 @@ AmrCoreAdv::FillPatch (int lev, Real time, MultiFab& mf, int icomp, int ncomp,
         if(Gpu::inLaunchRegion())
         {
             GpuBndryFuncFab<AmrCoreFill> gpu_bndry_func(AmrCoreFill{});
-            PhysBCFunct<GpuBndryFuncFab<AmrCoreFill> > physbc(geom[lev],bcs,gpu_bndry_func);
-            amrex::FillPatchSingleLevel(mf, time, smf, stime, 0, icomp, ncomp,
-                                        geom[lev], physbc, 0);
+            PhysBCFunct<GpuBndryFuncFab<AmrCoreFill> > physbc(geom[lev],bcs,gpu_bndry_func);  // here are used the BCs
+            amrex::FillPatchSingleLevel(mf, time, smf, stime, 0, icomp, ncomp, geom[lev], physbc, 0);
         }
         else
         {
             CpuBndryFuncFab bndry_func(nullptr);  // Without EXT_DIR, we can pass a nullptr.
-            PhysBCFunct<CpuBndryFuncFab> physbc(geom[lev],bcs,bndry_func);
-            amrex::FillPatchSingleLevel(mf, time, smf, stime, 0, icomp, ncomp,
-                                        geom[lev], physbc, 0);
+            PhysBCFunct<CpuBndryFuncFab> physbc(geom[lev],bcs,bndry_func);  // here are used the BCs
+            amrex::FillPatchSingleLevel(mf, time, smf, stime, 0, icomp, ncomp, geom[lev], physbc, 0);
+            mf.FillBoundary(geom[lev].periodicity());
+
+            FillRightGhostWithLeftBoundary(mf);
+
+            // put here the communication part,
+            //OnesidedMultiBlockBoundaryFn multi_block_boundaries{this, other_core, dtos, boundary_to_fill};  
+            //FillBoundaryFn FillBoundary_nonloc{std::move(multi_block_boundaries)};
+            //FillBoundary_nonloc();
         }
     }
     else
@@ -521,8 +838,8 @@ AmrCoreAdv::FillPatch (int lev, Real time, MultiFab& mf, int icomp, int ncomp,
         else
         {
             CpuBndryFuncFab bndry_func(nullptr);  // Without EXT_DIR, we can pass a nullptr.
-            PhysBCFunct<CpuBndryFuncFab> cphysbc(geom[lev-1],bcs,bndry_func);
-            PhysBCFunct<CpuBndryFuncFab> fphysbc(geom[lev],bcs,bndry_func);
+            PhysBCFunct<CpuBndryFuncFab> cphysbc(geom[lev-1],bcs,bndry_func); // coarse
+            PhysBCFunct<CpuBndryFuncFab> fphysbc(geom[lev],bcs,bndry_func);   // fine
 
             if (fptype == FillPatchType::fillpatch_class) {
                 fillpatcher[lev]->fill(mf, mf.nGrowVect(), time,
@@ -543,6 +860,7 @@ AmrCoreAdv::FillPatch (int lev, Real time, MultiFab& mf, int icomp, int ncomp,
 void
 AmrCoreAdv::FillCoarsePatch (int lev, Real time, MultiFab& mf, int icomp, int ncomp)
 {
+    // Modify here for the BCs
     BL_ASSERT(lev > 0);
 
     Vector<MultiFab*> cmf;
@@ -658,9 +976,9 @@ AmrCoreAdv::timeStepWithSubcycling (int lev, Real time, int iteration)
 
     Real t_nph = t_old[lev] + 0.5*dt[lev];
 
+    // here is the core part of the numerical scheme
     DefineVelocityAtLevel(lev, t_nph);
     AdvancePhiAtLevel(lev, time, dt[lev], iteration, nsubsteps[lev]);
-
 
 #ifdef AMREX_PARTICLES
     if (do_tracers) {
@@ -774,6 +1092,12 @@ AmrCoreAdv::timeStepNoSubcycling (Real time, int iteration)
     }
 }
 
+// Getter function for `finest_level`
+int 
+AmrCoreAdv::getFinestLevel() const {
+    return finest_level;
+}
+
 // a wrapper for EstTimeStep
 void
 AmrCoreAdv::ComputeDt ()
@@ -842,7 +1166,8 @@ AmrCoreAdv::EstTimeStep (int lev, Real time)
 std::string
 AmrCoreAdv::PlotFileName (int lev) const
 {
-    return amrex::Concatenate(plot_file, lev, 5);
+    auto plt_out = core_prefix + std::to_string(index_core) + "/" + plot_file;
+    return amrex::Concatenate(plt_out, lev, 5);
 }
 
 // put together an array of multifabs for writing
