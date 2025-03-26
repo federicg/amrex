@@ -137,42 +137,22 @@ public:
 
     void setOtherCore(const AmrCoreAdv*, const AmrCoreAdv*, const AmrCoreAdv*, const AmrCoreAdv*);
 
-    //void setOffsetCore(amrex::NonLocalBC::MultiBlockIndexMapping, amrex::Box);
-
-    struct 
-    OnesidedMultiBlockBoundaryFn {
-      AmrCoreAdv* dest;
-      const AmrCoreAdv* src;
-      amrex::MultiBlockIndexMapping dtos;
-      amrex::Box boundary_to_fill;
-      std::unique_ptr<amrex::MultiBlockCommMetaData> cmd{};
-      amrex::FabArrayBase::BDKey cached_dest_bd_key{};
-      amrex::FabArrayBase::BDKey cached_src_bd_key{};
-      amrex::NonLocalBC::ApplyDtosAndProjectionOnReciever<amrex::MultiBlockIndexMapping,
-                                       amrex::NonLocalBC::MapComponents<amrex::NonLocalBC::Identity, amrex::NonLocalBC::SwapComponents<1, 2>>>
-          packing{amrex::NonLocalBC::PackComponents{0, 0, 1}, dtos}; // the 1 refers to the number of components in ultifab, so to the number of staate variables
-
-      AMREX_NODISCARD amrex::CommHandler FillBoundary_nowait();
-      void FillBoundary_do_local_copy() const;
-      void FillBoundary_finish(amrex::CommHandler handler) const;
-    };
-
-    struct 
-    FillBoundaryFn {
-        OnesidedMultiBlockBoundaryFn boundary;
-        void operator()();
-    };
-
-    void FillRightGhostWithLeftBoundary(amrex::MultiFab& mf);
+    void FillGhostBoundary(amrex::MultiFab& mf, int lev, amrex::Vector<amrex::BCRec> const& bcr, amrex::Interpolater* mapper);
+    void CopyBoxMultiLevel(amrex::MultiFab& dest_mf, const amrex::MultiFab& src_mf, 
+                           const amrex::Geometry& dest_geom, const amrex::Geometry& src_geom, const amrex::Box& copy_box, 
+                           int src_comp, int dest_comp, 
+                           int num_comp, const amrex::IntVect ref_ratio);
     void create_ghost_multifabs(int);
 
 
-    std::array<amrex::NonLocalBC::MultiBlockIndexMapping, 4> dtos;
-    std::array<amrex::Box, 4> boundary_to_fill; 
+    amrex::Vector<std::array<amrex::NonLocalBC::MultiBlockIndexMapping, 4>> dtos;
+    amrex::Vector<std::array<amrex::Box, 4>> boundary_to_take_from; 
 
 private:
 
     int index_core;
+
+    amrex::Vector<int> last_regrid_step;
 
     ////////////////
     // private member functions
@@ -243,6 +223,9 @@ private:
 
     // This is for fillpatch during timestepping, but not for regridding.
     amrex::Vector<std::unique_ptr<amrex::FillPatcher<amrex::MultiFab>>> fillpatcher;
+
+    // This is for fillpatch during timestepping, but not for regridding.
+    amrex::Vector<std::unique_ptr<amrex::FillPatcher<amrex::MultiFab>>> fillpatcher_ghost_boundary;
 
     // Velocity on all faces at all levels
     amrex::Vector< amrex::Array<amrex::MultiFab, AMREX_SPACEDIM> > facevel;

@@ -30,6 +30,7 @@ int main(int argc, char* argv[])
         // wallclock time
         const auto strt_total = amrex::second();
 
+        // if Box domain(IntVect{}, IntVect{AMREX_D_DECL(7, 7, 8)}); means that the valid indices are from 0 to 7 at level 0 and at level 1 are from 0 to 15
         Box domain(IntVect{}, IntVect{AMREX_D_DECL(63, 63, 8)});
 
         RealBox real_box1{{AMREX_D_DECL(-cube_face_length*.5,                  -cube_face_length*.5,                  0.0)}, {AMREX_D_DECL(+cube_face_length*.5,                     +cube_face_length*.5,                  1.0)}};
@@ -41,11 +42,11 @@ int main(int argc, char* argv[])
         Array<int, AMREX_SPACEDIM> is_periodic2{AMREX_D_DECL(0, 1, 1)};
         Geometry geom2{domain, real_box2, CoordSys::cartesian, is_periodic2};
 
-        AmrInfo amr_info{};
-        amr_info.max_level = 0; // maximum level number allowed -- number of levels = max_level + 1
+        AmrInfo amr_info{}; 
+        amr_info.max_level = 1; // maximum level number allowed -- number of levels = max_level + 1
         amr_info.blocking_factor.assign(amr_info.max_level+1, IntVect{AMREX_D_DECL( 8,  8,  8)}); // along, x, y, z
         amr_info.max_grid_size  .assign(amr_info.max_level+1, IntVect{AMREX_D_DECL(16, 16, 16)}); // along, x, y, z
-        amr_info.ref_ratio      .assign(amr_info.max_level+1, IntVect{AMREX_D_DECL( 2,  2,  1)});
+        amr_info.ref_ratio      .assign(amr_info.max_level+1, IntVect{AMREX_D_DECL( 2,  2,  1)}); // controlla qui se non raffina come pensi
 
 
         //amr_info.v = 1;
@@ -63,53 +64,53 @@ int main(int argc, char* argv[])
         amr_core_adv_2.setOtherCore(&amr_core_adv_1, &amr_core_adv_1, &amr_core_adv_1, &amr_core_adv_1);
 
 
-
+        // level 0 mesh communications
         // put here the communication part, 0 is the right boundary of the receiver, 1 is the left boundary of the receiver, 2 is the upper boundary of the receiver, 3, is the lower boundary of the receiver
+        int num_ghost = 3;
+        auto current_ref_ratio = IntVect(AMREX_D_DECL(1, 1, 1));
+        for (int lev = 0; lev <= amr_info.max_level; ++lev)
         {
-            IntVect num_ghosts = IntVect{AMREX_D_DECL(0, 1, 0)}; // Custom ghost cells per direction
-            NonLocalBC::MultiBlockIndexMapping dtos{};
-            dtos.permutation = IntVect{AMREX_D_DECL(0, 1, 2)};
-            dtos.offset = (domain.bigEnd(ix) + 1) * e_x;
-            dtos.sign = IntVect{AMREX_D_DECL(1, 1, 1)};
-            Box right_boundary_to_fill_in_x = grow(shift(Box{domain.bigEnd(ix) * e_x, domain.bigEnd()}, e_x), num_ghosts);
+            {
+                NonLocalBC::MultiBlockIndexMapping dtos{};
+                dtos.permutation = IntVect{AMREX_D_DECL(0, 1, 2)};
+                dtos.offset = (domain.bigEnd(ix) + 1) * e_x*current_ref_ratio[ix];
+                dtos.sign = IntVect{AMREX_D_DECL(1, 1, 1)};
+                Box left_boundary_to_take_from_in_x = grow(Box{domain.smallEnd()*current_ref_ratio, ((domain.bigEnd()+1)*current_ref_ratio-1) - (domain.bigEnd(ix)*current_ref_ratio[ix]-(num_ghost-1)) * e_x}, num_ghost*e_y); 
 
-            amr_core_adv_1.dtos[0] = dtos;
-            amr_core_adv_1.boundary_to_fill[0] = right_boundary_to_fill_in_x;
-        }
-        {
-            IntVect num_ghosts = IntVect{AMREX_D_DECL(0, 1, 0)}; // Custom ghost cells per direction
-            NonLocalBC::MultiBlockIndexMapping dtos{};
-            dtos.permutation = IntVect{AMREX_D_DECL(0, 1, 2)};
-            dtos.offset = - (domain.bigEnd(ix) + 1) * e_x;
-            dtos.sign = IntVect{AMREX_D_DECL(1, 1, 1)};
-            Box left_boundary_to_fill_in_x = grow(shift(Box{domain.smallEnd(), domain.bigEnd() - domain.bigEnd(ix) * e_x}, -e_x), num_ghosts); 
-            
-            amr_core_adv_2.dtos[1] = dtos;
-            amr_core_adv_2.boundary_to_fill[1] = left_boundary_to_fill_in_x;
-        }
+                amr_core_adv_1.dtos[lev][0] = dtos;
+                amr_core_adv_1.boundary_to_take_from[lev][0] = left_boundary_to_take_from_in_x;
+            }
+            {
+                NonLocalBC::MultiBlockIndexMapping dtos{};
+                dtos.permutation = IntVect{AMREX_D_DECL(0, 1, 2)};
+                dtos.offset = (domain.bigEnd(ix) + 1) * e_x*current_ref_ratio[ix];
+                dtos.sign = IntVect{AMREX_D_DECL(1, 1, 1)};
+                Box left_boundary_to_take_from_in_x = grow(Box{domain.smallEnd()*current_ref_ratio, ((domain.bigEnd()+1)*current_ref_ratio-1) - (domain.bigEnd(ix)*current_ref_ratio[ix]-(num_ghost-1)) * e_x}, num_ghost*e_y); 
+                
+                amr_core_adv_2.dtos[lev][0] = dtos;
+                amr_core_adv_2.boundary_to_take_from[lev][0] = left_boundary_to_take_from_in_x;
+            }
+            {
+                NonLocalBC::MultiBlockIndexMapping dtos{};
+                dtos.permutation = IntVect{AMREX_D_DECL(0, 1, 2)};
+                dtos.offset = - (domain.bigEnd(ix) + 1) * e_x*current_ref_ratio[ix];
+                dtos.sign = IntVect{AMREX_D_DECL(1, 1, 1)};
+                Box right_boundary_to_take_from_in_x = grow(Box{(domain.bigEnd(ix)*current_ref_ratio[ix]-(num_ghost-1)) * e_x, ((domain.bigEnd()+1)*current_ref_ratio-1)}, num_ghost*e_y);
+                
+                amr_core_adv_2.dtos[lev][1] = dtos;
+                amr_core_adv_2.boundary_to_take_from[lev][1] = right_boundary_to_take_from_in_x;
+            }
+            {
+                NonLocalBC::MultiBlockIndexMapping dtos{};
+                dtos.permutation = IntVect{AMREX_D_DECL(0, 1, 2)};
+                dtos.offset = - (domain.bigEnd(ix) + 1) * e_x*current_ref_ratio[ix];
+                dtos.sign = IntVect{AMREX_D_DECL(1, 1, 1)};
+                Box right_boundary_to_take_from_in_x = grow(Box{(domain.bigEnd(ix)*current_ref_ratio[ix]-(num_ghost-1)) * e_x, ((domain.bigEnd()+1)*current_ref_ratio-1)}, num_ghost*e_y);
 
-
-        {
-            IntVect num_ghosts = IntVect{AMREX_D_DECL(0, 1, 0)}; // Custom ghost cells per direction
-            NonLocalBC::MultiBlockIndexMapping dtos{};
-            dtos.permutation = IntVect{AMREX_D_DECL(0, 1, 2)};
-            dtos.offset = - (domain.bigEnd(ix) + 1) * e_x;
-            dtos.sign = IntVect{AMREX_D_DECL(1, 1, 1)};
-            Box left_boundary_to_fill_in_x = grow(shift(Box{domain.smallEnd(), domain.bigEnd() - domain.bigEnd(ix) * e_x}, -e_x), num_ghosts); 
-
-            amr_core_adv_1.dtos[1] = dtos;
-            amr_core_adv_1.boundary_to_fill[1] = left_boundary_to_fill_in_x;
-        }
-        {
-            IntVect num_ghosts = IntVect{AMREX_D_DECL(0, 1, 0)}; // Custom ghost cells per direction
-            NonLocalBC::MultiBlockIndexMapping dtos{};
-            dtos.permutation = IntVect{AMREX_D_DECL(0, 1, 2)};
-            dtos.offset = (domain.bigEnd(ix) + 1) * e_x;
-            dtos.sign = IntVect{AMREX_D_DECL(1, 1, 1)};
-            Box right_boundary_to_fill_in_x = grow(shift(Box{domain.bigEnd(ix) * e_x, domain.bigEnd()}, e_x), num_ghosts);
-            
-            amr_core_adv_2.dtos[0] = dtos;
-            amr_core_adv_2.boundary_to_fill[0] = right_boundary_to_fill_in_x;
+                amr_core_adv_1.dtos[lev][1] = dtos;
+                amr_core_adv_1.boundary_to_take_from[lev][1] = right_boundary_to_take_from_in_x;
+            }
+            current_ref_ratio *= amr_info.ref_ratio[lev];
         }
 
 
@@ -125,22 +126,21 @@ int main(int argc, char* argv[])
         {
             amrex::Print() << "\nCoarse STEP " << step+1 << " starts ..." << '\n';
 
-            amr_core_adv_1.ComputeDt(); // be careful her about the sync of dt, for velocity equal to a number everywhere there are no issues right now
+            amr_core_adv_1.ComputeDt(); // be careful here about the sync of dt, for velocity equal to a number everywhere there are no issues right now
             amr_core_adv_2.ComputeDt();
 
             if (amr_core_adv_1.dt[0] != amr_core_adv_2.dt[0]) {
                 throw std::runtime_error("You have to fix the syncronization between times in various cores");
             }
 
-            // call function to create  new multifab from the stored pointers,
-            amr_core_adv_1.create_ghost_multifabs(3); // set the number of ghosts
-            amr_core_adv_2.create_ghost_multifabs(3);
+            // call function to create new multifab from the stored pointers,
+            amr_core_adv_1.create_ghost_multifabs(num_ghost); // set the number of ghosts
+            amr_core_adv_2.create_ghost_multifabs(num_ghost); // set the number of ghosts
 
             int lev = 0;
             int iteration = 1;
             if (amr_core_adv_1.do_subcycle) {
                 amr_core_adv_1.timeStepWithSubcycling(lev, cur_time, iteration);
-                std::cout << "second now!!!!/////////////////////////////////////////////////////////////" << std::endl;
                 amr_core_adv_2.timeStepWithSubcycling(lev, cur_time, iteration);
             } else {
                 amr_core_adv_1.timeStepNoSubcycling(cur_time, iteration);
@@ -170,11 +170,9 @@ int main(int argc, char* argv[])
                 amr_core_adv_1.WritePlotFile();
                 amr_core_adv_2.WritePlotFile();
             }
-            if (last_plot_file_step==1)
-            {
-                std::cout << "aaa" << std::endl;
-                exit(1);
-            }
+
+            //std::cout << " hereee " << std::endl;
+            //exit(1);
             
 
             if (amr_core_adv_1.chk_int > 0 && (step+1) % amr_core_adv_1.chk_int == 0) {

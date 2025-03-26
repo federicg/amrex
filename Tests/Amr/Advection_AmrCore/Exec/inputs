@@ -3,7 +3,7 @@
 #     whichever comes first
 # *****************************************************************
 max_step  = 1000
-stop_time = 1.0
+stop_time = 2.0
 
 # *****************************************************************
 # Are we restarting from an existing checkpoint file?
@@ -43,12 +43,12 @@ amr.v              = 1       # verbosity in Amr
 
 #amr.max_grid_size   = 16
 
-#amr.regrid_int      = 2       # how often to regrid
+amr.regrid_int      = 1       # how often to regrid
 
 # *****************************************************************
 # Time step control
 # *****************************************************************
-adv.cfl            = 0.7     # CFL constraint for explicit advection
+adv.cfl            = .7     # CFL constraint for explicit advection
 
 adv.do_subcycle    = 1       # Do we subcycle in time?
 
@@ -62,7 +62,7 @@ adv.do_reflux = 1
 #            if phi > 1.1  at level 1, then refine
 #            if phi > 1.5  at level 2, then refine
 # *****************************************************************
-adv.phierr = .1  .2  .3
+adv.phierr = 0.001  1.1  1.5
 
 # *****************************************************************
 # Plotfile name and frequency

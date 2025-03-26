@@ -14,12 +14,13 @@ initdata(amrex::Box const& bx, amrex::Array4<amrex::Real> const& phi,
 {
     using namespace amrex;
 
-    const auto lo = lbound(bx);
+    // here takes the coordinates from RealBox
+    const auto lo = lbound(bx); 
     const auto hi = ubound(bx);
 
     constexpr double R = 0.15;
 
-    Real center[] = {0, 0};
+    Real center[] = {0, 0}; //{1, 0};
 
     for         (int k = lo.z; k <= hi.z; ++k) {
         for     (int j = lo.y; j <= hi.y; ++j) {
@@ -30,6 +31,9 @@ initdata(amrex::Box const& bx, amrex::Array4<amrex::Real> const& phi,
                 Real r2 = std::sqrt((x-center[0]) * (x-center[0]) + (y-center[1]) * (y-center[1]));
                 phi(i,j,k) = r2 < R ? 1.0 : 0.0; 
                 //phi(i,j,k) = x < 0 ? 1.0 : 0.0; 
+
+                //Real r2 = (std::pow(x-0.5, 2) + std::pow((y-0.75),2)) / 0.01;
+                //phi(i,j,k) = 1.0 + std::exp(-r2);
             }
         }
     }

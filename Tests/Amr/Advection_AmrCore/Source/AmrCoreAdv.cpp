@@ -51,6 +51,15 @@ AmrCoreAdv::AmrCoreAdv (Geometry const& level_0_geom, int index_core,
     array_vec_mf_g[2].resize(nlevs_max);
     array_vec_mf_g[3].resize(nlevs_max);
 
+    //
+    boundary_to_take_from.resize(nlevs_max);
+
+    //
+    dtos.resize(nlevs_max);
+
+    //
+    last_regrid_step.resize(nlevs_max, 0);
+
 
     facevel.resize(nlevs_max);
 
@@ -309,6 +318,7 @@ AmrCoreAdv::ClearLevel (int lev)
     phi_old[lev].clear();
     flux_reg[lev].reset(nullptr);
     fillpatcher[lev].reset(nullptr);
+    //fillpatcher_ghost_boundary[lev].reset(nullptr);
 }
 
 // Make a new level from scratch using provided BoxArray and DistributionMapping.
@@ -360,7 +370,7 @@ void AmrCoreAdv::MakeNewLevelFromScratch (int lev, Real time, const BoxArray& ba
 // tag all cells for refinement
 // overrides the pure virtual function in AmrCore
 void
-AmrCoreAdv::ErrorEst (int lev, TagBoxArray& tags, Real /*time*/, int /*ngrow*/)
+AmrCoreAdv::ErrorEst (int lev, TagBoxArray& tags, Real /*time*/, int ngrow)
 {
     static bool first = true;
     static Vector<Real> phierr;
@@ -384,9 +394,15 @@ AmrCoreAdv::ErrorEst (int lev, TagBoxArray& tags, Real /*time*/, int /*ngrow*/)
     if (lev >= phierr.size()) { return; }
 
 //    const int clearval = TagBox::CLEAR;
-    const int   tagval = TagBox::SET;
+    const int tagval = TagBox::SET;
+    //const int fine_tagval = amrex::TagBoxArray::ADD; // Tag for additional finer refinement
 
     const MultiFab& state = phi_new[lev];
+
+    const auto problo = Geom(lev).ProbLoArray();
+    const auto dx     = Geom(lev).CellSizeArray();
+
+    //std::cout << dx[0] << " " << this->Geom(lev).CellSizeArray()[0] << std::endl;
 
 #ifdef AMREX_USE_OMP
 #pragma omp parallel if(Gpu::notInLaunchRegion())
@@ -395,7 +411,8 @@ AmrCoreAdv::ErrorEst (int lev, TagBoxArray& tags, Real /*time*/, int /*ngrow*/)
 
         for (MFIter mfi(state,TilingIfNotGPU()); mfi.isValid(); ++mfi)
         {
-            const Box& bx  = mfi.tilebox();
+            const Box& bx = mfi.tilebox();
+            //const Box& bx = mfi.tilebox().grow(ngrow);
             const auto statefab = state.array(mfi);
             const auto tagfab  = tags.array(mfi);
             Real phierror = phierr[lev];
@@ -403,6 +420,17 @@ AmrCoreAdv::ErrorEst (int lev, TagBoxArray& tags, Real /*time*/, int /*ngrow*/)
             amrex::ParallelFor(bx,
             [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
             {
+                //const auto lo = lbound(bx); 
+                //const auto hi = ubound(bx);
+
+                Real x = problo[0] + (0.5+i)*dx[0];
+                Real y = problo[1] + (0.5+j)*dx[1];
+
+                //if (x>-0.5) tagfab(i,j,k) = tagval;
+                //if (lev==0 && x>0) tagfab(i,j,k) = tagval; 
+                //if (lev==1 && x>0.3) tagfab(i,j,k) = tagval; 
+                //if (x>0.1) tagfab(i,j,k) = fine_tagval; 
+
                 state_error(i, j, k, tagfab, statefab, phierror, tagval);
             });
         }
@@ -528,242 +556,301 @@ AmrCoreAdv::create_ghost_multifabs(int ng) {
 
 }
 
-//
-AMREX_NODISCARD CommHandler 
-AmrCoreAdv::OnesidedMultiBlockBoundaryFn::FillBoundary_nowait() {
-    if (!cmd || cached_dest_bd_key != dest->phi_new[0].getBDKey() || cached_src_bd_key != src->phi_new[0].getBDKey()) {
-        cmd = std::make_unique<MultiBlockCommMetaData>(dest->phi_new[0], boundary_to_fill, src->phi_new[0], dest->phi_new[0].nGrowVect(), dtos);
-        cached_dest_bd_key = dest->phi_new[0].getBDKey();
-        cached_src_bd_key = src->phi_new[0].getBDKey();
-    }
-
-    return ParallelCopy_nowait(amrex::NonLocalBC::no_local_copy, dest->phi_new[0], src->phi_new[0], *cmd, packing);
-  }
-
+/*
 void 
-AmrCoreAdv::OnesidedMultiBlockBoundaryFn::FillBoundary_do_local_copy() const {
-    AMREX_ASSERT(cmd && cached_dest_bd_key == dest->phi_new[0].getBDKey() && cached_src_bd_key == src->phi_new[0].getBDKey());
-    if (cmd->m_LocTags && !cmd->m_LocTags->empty()) {
-        LocalCopy(packing, dest->phi_new[0], src->phi_new[0], *cmd->m_LocTags);
-    }
-  }
-
-void 
-AmrCoreAdv::OnesidedMultiBlockBoundaryFn::FillBoundary_finish(CommHandler handler) const {
-    ParallelCopy_finish(dest->phi_new[0], std::move(handler), *cmd, packing); // NOLINT(performance-move-const-arg)
-}
-
-
-void 
-AmrCoreAdv::FillBoundaryFn::operator()() {
-    CommHandler comms = boundary.FillBoundary_nowait();
-    boundary.FillBoundary_do_local_copy();
-    boundary.FillBoundary_finish(std::move(comms)); 
-};
-
-
-void 
-AmrCoreAdv::FillRightGhostWithLeftBoundary(amrex::MultiFab& mf)
+AmrCoreAdv::FillGhostBoundary(amrex::MultiFab& mf, int lev)
 {
-    //Box domain_box = geom.Domain(); // Physical domain
-
-    //mf.copy(other_core[0]->phi_new[0], 0, 0, mf.nComp(), mf.nGrow());
-
-    //std::cout << other_core[0]->phi_old[0].nGrow() << " " << array_vec_mf_g[0][0].nGrow() << std::endl;
-    //exit(1);
-
-
-    // array_vec_mf_g[0][0]
-    for (int mfi=0; mfi<array_vec_mf_g[0][0].local_size(); ++mfi) //(MFIter mfi(other_core[0]->phi_old[0], TilingIfNotGPU()); mfi.isValid(); ++mfi)
-    {
-        auto src_box = amrex::grow(array_vec_mf_g[0][0].boxArray()[mfi], array_vec_mf_g[0][0].nGrow()); //array_vec_mf_g[0][0].boxArray().grow(3); // amrex::grow(array_vec_mf_g[0][0].boxArray()[mfi], array_vec_mf_g[0][0].nGrow()); 
-
-        const auto& mf = array_vec_mf_g[0][0].const_array(mfi); 
-        amrex::ParallelFor(src_box, [=] AMREX_GPU_DEVICE(int i, int j, int k)
-        {
-            if (mf(i, j, k)!=0)
-            std::cout << i << " " << j << " " << k << " " << mf(i, j, k) << " aaa " << src_box << std::endl;
-        });
-    }
-
-    for (int mfi=0; mfi<array_vec_mf_g[0][0].local_size(); ++mfi) //(MFIter mfi(other_core[0]->phi_old[0], TilingIfNotGPU()); mfi.isValid(); ++mfi)
-    {
-        auto src_box = amrex::grow(array_vec_mf_g[0][0].boxArray()[mfi], array_vec_mf_g[0][0].nGrow()); //array_vec_mf_g[0][0].boxArray().grow(3); // amrex::grow(array_vec_mf_g[0][0].boxArray()[mfi], array_vec_mf_g[0][0].nGrow()); 
-        
-        auto iv = IntVect{AMREX_D_DECL(-1, 0, 0)};
-        src_box.shift(iv);
-
-        array_vec_mf_g[0][0].setVal(0); 
-
-        const auto& mf = array_vec_mf_g[0][0].const_array(mfi); 
-        amrex::ParallelFor(src_box, [=] AMREX_GPU_DEVICE(int i, int j, int k)
-        { 
-            if (mf(i, j, k)!=0)
-            std::cout << i << " " << j << " " << k << " " << mf(i, j, k) << " bbb " << src_box << std::endl;
-        });
-    }
-    exit(1);
-/*
-    for (int mfi=0; mfi<other_core[0]->phi_new[0].local_size(); ++mfi) //(MFIter mfi(other_core[0]->phi_old[0], TilingIfNotGPU()); mfi.isValid(); ++mfi)
-    {
-        auto src_box = amrex::grow(other_core[0]->phi_new[0].boxArray()[mfi], other_core[0]->phi_new[0].nGrow()); //array_vec_mf_g[0][0].boxArray().grow(3); // amrex::grow(array_vec_mf_g[0][0].boxArray()[mfi], array_vec_mf_g[0][0].nGrow()); 
-        //const Box& bx_dst = mfi.growntilebox(other_core[0]->phi_old[0].nGrow());
-        const auto& mf = other_core[0]->phi_new[0].const_array(mfi); 
-        amrex::ParallelFor(src_box, [=] AMREX_GPU_DEVICE(int i, int j, int k)
-        {
-            //if (mf(i, j, k)!=0)
-            //std::cout << i << " " << j << " " << k << " " << mf(i, j, k) << " " << other_core[0]->phi_new[0].nGrow() << std::endl;
-        });
-    }
-
-    for (int mfi=0; mfi<other_core[0]->phi_old[0].local_size(); ++mfi) //(MFIter mfi(other_core[0]->phi_old[0], TilingIfNotGPU()); mfi.isValid(); ++mfi)
-    {
-        auto src_box = amrex::grow(other_core[0]->phi_old[0].boxArray()[mfi], other_core[0]->phi_old[0].nGrow()); //array_vec_mf_g[0][0].boxArray().grow(3); // amrex::grow(array_vec_mf_g[0][0].boxArray()[mfi], array_vec_mf_g[0][0].nGrow()); 
-        //const Box& bx_dst = mfi.growntilebox(other_core[0]->phi_old[0].nGrow());
-        const auto& mf = other_core[0]->phi_old[0].const_array(mfi); 
-        amrex::ParallelFor(src_box, [=] AMREX_GPU_DEVICE(int i, int j, int k)
-        {
-            //if (mf(i, j, k)!=0)
-            //std::cout << i << " " << j << " " << k << " " << mf(i, j, k) << " " << other_core[0]->phi_old[0].nGrow() << std::endl;
-        });
-    }*/
 
     for (MFIter mfi(mf, TilingIfNotGPU()); mfi.isValid(); ++mfi)
     {
-        const Box& bx_dst = mfi.growntilebox(mf.nGrow());  // Destination box
+        const auto& bx_dst = mfi.growntilebox(mf.nGrow());  // Destination box
         const auto& mf_arr = mf.array(mfi);         // Destination array
 
-        for (int ii=1; ii<2; ii++)
+        for (int ii=0; ii<2; ii++)
         {
+            // take the shifts 
+            const auto& shift_x = dtos[lev][ii].offset[0];
+            const auto& shift_y = dtos[lev][ii].offset[1];
+#if (AMREX_SPACEDIM == 3)
+            const auto& shift_z = dtos[lev][ii].offset[2]; 
+#endif
 
-            for (int mfi_src=0; mfi_src<array_vec_mf_g[ii][0].local_size(); ++mfi_src)
+            for (int mfi_src=0; mfi_src<array_vec_mf_g[ii][lev].local_size(); ++mfi_src)
             {
-                auto src_box = amrex::grow(array_vec_mf_g[ii][0].boxArray()[mfi_src], array_vec_mf_g[ii][0].nGrow());
-                auto iv = IntVect{AMREX_D_DECL(-64, 0, 0)};
-                src_box.shift(iv);
+                auto src_box = amrex::grow(array_vec_mf_g[ii][lev].boxArray()[mfi_src], array_vec_mf_g[ii][lev].nGrow());
 
-                const auto& phi_arr = array_vec_mf_g[ii][0].const_array(mfi_src); 
+                const auto& phi_arr = array_vec_mf_g[ii][lev].const_array(mfi_src); 
 
-                amrex::ParallelFor(src_box & bx_dst, [=] AMREX_GPU_DEVICE(int i, int j, int k)
+
+                auto bx_int = src_box & boundary_to_take_from[lev][ii];
+                if (!bx_int.ok()) continue;
+
+                bx_int.shift(dtos[lev][ii].offset);
+                auto bx_int_tr = bx_int & bx_dst;
+                if (!bx_int_tr.ok()) continue;
+
+                //if (mfi_src==0) std::cout << phi_arr(0,0,0) << " " << phi_arr(-1,0,0) << std::endl;
+                std::cout << src_box << std::endl;
+
+                //if (ii==0) std::cout << lev << " " << array_vec_mf_g[ii][lev].local_size() << " " << mfi_src << " " << ii << " " << src_box << " " << bx_dst << " " << bx_int_tr << std::endl; // check here if you get the expected numbering
+
+                amrex::ParallelFor(bx_int_tr, [=] AMREX_GPU_DEVICE(int i, int j, int k)
                 {
-                    if (phi_arr(i, j, k)!=0)
-                    {
-                        //std::cout << i << " " << j << " " << k << " " << phi_arr(i, j, k) << " " << std::endl;
-                    }
-                    //std::cout << geom[0].Domain().smallEnd() << " " << geom[0].Domain().bigEnd() << std::endl;
-                    //exit(1);
-                    if (i<geom[0].Domain().smallEnd(0))
-                    {
-                        if (phi_arr(i, j, k)!=0) 
-                        {
-                            //std::cout << i << " " << j << " " << phi_arr(i, j, k) << std::endl;
-                        }
-                        mf_arr(i, j, k) = 0;//phi_arr(i, j, k);
-                    }
-                });
-            }
-            
-        }
+#if (AMREX_SPACEDIM == 2)
 
-        for (int ii=0; ii<1; ii++)
-        {
-
-            for (int mfi_src=0; mfi_src<array_vec_mf_g[ii][0].local_size(); ++mfi_src)
-            {
-                auto src_box = amrex::grow(array_vec_mf_g[ii][0].boxArray()[mfi_src], array_vec_mf_g[ii][0].nGrow());
-                auto iv = IntVect{AMREX_D_DECL(64, 0, 0)};
-                src_box.shift(iv);
-
-                const auto& phi_arr = array_vec_mf_g[ii][0].const_array(mfi_src); 
-
-                amrex::ParallelFor(src_box & bx_dst, [=] AMREX_GPU_DEVICE(int i, int j, int k)
-                {
-                    if (phi_arr(i, j, k)!=0)
+                    if (lev==1)
                     {
-                        //std::cout << i << " " << j << " " << k << " " << phi_arr(i, j, k) << " " << std::endl;
+                        std::cout << bx_int_tr << " " << i << " " << j << " " << k << std::endl;
                     }
-                    if (i>geom[0].Domain().bigEnd(0))
-                    {
-                        if (phi_arr(i, j, k)!=0) 
-                        {
-                            //std::cout << i << " " << j << " " << phi_arr(i, j, k) << std::endl;
-                        }
-                        mf_arr(i, j, k) = 0;//phi_arr(i, j, k);
-                    }
+
+                    //if (phi_arr(i-dtos[ii].offset[0], j-dtos[ii].offset[1], k)!=0) std::cout << phi_arr(i-dtos[ii].offset[0], j-dtos[ii].offset[1], k) << std::endl;
+                    mf_arr(i, j, k) = phi_arr(i-shift_x, j-shift_y, k);
+                    //if (i<0) mf_arr(i, j, k)=0;
+#elif (AMREX_SPACEDIM == 3)
+                    mf_arr(i, j, k) = phi_arr(i-shift_x, j-shift_y, k-shift_z);
+#endif
                 });
             }
             
         }
     }
 };
-
-/*
-
-    for (MFIter mfi(mf, TilingIfNotGPU()); mfi.isValid(); ++mfi)
-    {
-        const Box& bx_dst = mfi.growntilebox(mf.nGrow());  // Destination box
-        //const Box& bx_dst = mfi.tilebox();  // Destination box
-        const auto& mf_arr = mf.array(mfi);         // Destination array
-
-        for (int ii=1; ii<2; ii++)
-        {
-
-            std::vector<std::pair<int, Box>> isects;  // Correct type
-            auto src_box = array_vec_mf_g[ii][0].boxArray(); // array_vec_mf_g
-            //auto src_box = amrex::grow(array_vec_mf_g[ii][0].boxArray()[mfi], array_vec_mf_g[0][0].nGrow());
-            //auto src_box = other_core[ii]->phi_old[0].boxArray();
-
-            //std::cout << 
-
-            if (mf.boxArray() != src_box) {
-                amrex::Print() << "❌ MultiFabs have different BoxArrays!" << std::endl;
-            }
-
-            src_box.shift(dtos[ii].offset); // translate the box 
-            src_box.intersections(bx_dst, isects); // compute intersections between boxes
-
-            //std::cout << src_box << " " << bx_dst << std::endl;
-            for (const auto& [idx, bx_src] : isects)  // Structured binding (C++17)
-            {
-                //std::cout << idx << " " << bx_src << " " << bx_dst << std::endl;
-            
-                //const auto& phi_arr = other_core[ii]->phi_old[0].const_array(idx);  
-                const auto& phi_arr = array_vec_mf_g[ii][0].const_array(idx);
-
-                Box bx_intersect = bx_dst & bx_src;
-                if (!bx_intersect.ok()) continue;  // Skip if no overlap
-
-                amrex::ParallelFor(bx_intersect, [=] AMREX_GPU_DEVICE(int i, int j, int k)
-                {
-                    if (phi_arr(i, j, k)!=0)
-                    std::cout << i << " " << j << " " << k << " " << phi_arr(i, j, k) << " " << bx_intersect << std::endl;
-                    mf_arr(i, j, k) = phi_arr(i, j, k);
-                });
-            }
-
 */
 
 
-/*
-            const auto& phi_arr = array_vec_mf_g[ii][0].const_array(mfi);  
+void 
+AmrCoreAdv::CopyBoxMultiLevel(amrex::MultiFab& dest_mf, const amrex::MultiFab& src_mf, 
+                              const amrex::Geometry& dest_geom, const amrex::Geometry& src_geom,
+                              const amrex::Box& copy_box, int src_comp, int dest_comp, 
+                              int num_comp, const IntVect ref_ratio) {
+    if (ref_ratio == IntVect::TheUnitVector()) {
+        /*
+        // Case 1: Same Level Copy
+        for (MFIter mfi(src_mf); mfi.isValid(); ++mfi) {
+            const Box& src_box = mfi.growntilebox(src_mf.nGrow()); //mfi.validbox();
+            auto bx_int = src_box & copy_box;  // Restrict to the desired region
 
-            std::cout << phi_arr(0, 8, 0) << " qui " << mf.boxArray() << " " << src_box << " " << bx_dst << " " << boundary_to_fill[ii] << std::endl;
+            if (!bx_int.ok()) continue;
 
-            // Check if the MFIter is valid for this tile before doing the parallel for
-            amrex::ParallelFor(boundary_to_fill[ii] & bx_dst, [=] AMREX_GPU_DEVICE(int i, int j, int k)
+            bx_int.shift(dtos[0][0].offset);
+            auto bx_int_tr = bx_int & bx_dst;
+            if (!bx_int_tr.ok()) continue;
+
+            if (!sub_box.isEmpty()) {
+                dest_mf[mfi].copy(src_mf[mfi], sub_box, src_comp, sub_box, dest_comp, num_comp);
+            }
+        }*/
+
+        AMREX_ALWAYS_ASSERT(src_comp + num_comp <= src_mf.nComp());
+        AMREX_ALWAYS_ASSERT(dest_comp + num_comp <= dest_mf.nComp());
+
+        // Temporary buffer for parallel copy
+        MultiFab src_tmp(src_mf.boxArray(), src_mf.DistributionMap(), num_comp, src_mf.nGrow());
+        src_tmp.ParallelCopy(src_mf, src_comp, 0, num_comp);
+
+        // Loop over destination MultiFab
+        for (MFIter mfi(dest_mf); mfi.isValid(); ++mfi) {
+            const Box& src_box = mfi.growntilebox(src_mf.nGrow());  // Original box in dest_mf
+            auto bx_int = src_box & copy_box;  // Restrict to the desired region
+            if (!bx_int.ok()) continue;
+
+            // Shift the valid box
+            bx_int.shift(dtos[0][1].offset);
+
+            // Get the destination Box
+            const Box& bx_dst = mfi.tilebox();  
+
+            // Compute the intersection with copy_box
+            Box sub_box = bx_int & bx_dst;
+
+            if (!sub_box.isEmpty()) {
+                // Copy the overlapping region
+                dest_mf[mfi].copy(src_tmp[mfi], sub_box, 0, sub_box, dest_comp, num_comp);
+            }
+        }
+    } 
+    else if (ref_ratio > IntVect::TheUnitVector()) {
+        // Case 2: Coarse-to-Fine Copy (Interpolation)
+        Interpolater* mapper = &cell_cons_interp; // Conservative interpolation
+        Vector<BCRec> bcs(num_comp);  // Default boundary conditions
+
+        for (MFIter mfi(dest_mf); mfi.isValid(); ++mfi) {
+            const Box& valid_box = mfi.validbox();
+            Box sub_box = valid_box & copy_box;  // Restrict to the desired region
+
+            if (!sub_box.isEmpty()) {
+                for (int bcscomp = 0; bcscomp < num_comp; ++bcscomp) {
+                    // Set the boundary conditions for each component
+
+                    //amrex::InterpFromCoarseLevel(dest_mf[mfi], src_mf.nGrow(), src_mf.nGrow(), src_mf, src_comp, dest_comp, num_comp, src_geom, dest_geom, ref_ratio, &mapper, bcs, bcscomp);
+                }
+
+            }
+        }
+    } 
+    else {
+        // Case 3: Fine-to-Coarse Copy (Averaging)
+        amrex::average_down(src_mf, dest_mf, src_comp, num_comp, ref_ratio);
+    }
+}
+
+
+
+
+
+
+
+void 
+AmrCoreAdv::FillGhostBoundary(amrex::MultiFab& mf, int lev, amrex::Vector<amrex::BCRec> const& bcr, amrex::Interpolater* mapper)
+{
+
+    // perform first the interpolation operation, and then apply the copy (the copy shoudl work as is because it directly copies whenever the data is available)
+    // lev 0 there is always, here perform the conservative interpolation
+    if (lev>0) // here it's just tested when lev=1
+    {   
+
+
+#ifdef AMREX_USE_OMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+        {
+            const auto& geom_fine = Geom(lev);
+            IntVect ref_ratio = refRatio(lev-1);
+            for (MFIter mfi(mf, TilingIfNotGPU()); mfi.isValid(); ++mfi)
             {
-                // Print the indices and values
-                std::cout << i << " " << j << " " << k << " " << phi_arr(i, j, k) << std::endl;
+                const auto& bx_dst = mfi.growntilebox(mf.nGrow());  // Destination box
+                //const auto& bx_dst_ = mfi.tilebox();  // Destination box
+                FArrayBox& mf_fab = mf[mfi];  // Destination FArrayBox
+                const auto& mf_arr = mf.array(mfi);
 
-                // Copy data from phi_arr to mf_arr
-                mf_arr(i, j, k) = 0;//phi_arr(i, j, k);
-            });*/
-            //src_box.shift(-dtos[ii].offset); // translate the box 
-        //}
+                //std::cout << bx_dst << " " << bx_dst_ << std::endl;
 
+                for (int ii = 1; ii < 2; ii++)
+                {
+                    const auto& boundary_box = boundary_to_take_from[lev][ii];
+                    const auto& geom_crse = other_core[ii]->Geom(lev-1);
+                    auto& src_mf = array_vec_mf_g[ii][lev-1];  // Reference to avoid multiple lookups
 
-    //}
-//exit(1);
+                    if (!boundary_box.ok()) continue;  // Skip invalid boundaries early
+
+                    const auto shifted_box_int = amrex::shift(boundary_box, dtos[lev][ii].offset) & bx_dst;
+                    if (!shifted_box_int.ok()) continue;
+
+                    for (int mfi_src = 0; mfi_src < src_mf.local_size(); ++mfi_src)
+                    {
+                        FArrayBox& phi_fab = src_mf[mfi_src];  // Source FArrayBox
+                        const auto& phi_arr = src_mf.const_array(mfi_src); 
+                        const auto src_box = amrex::grow(src_mf.boxArray()[mfi_src], src_mf.nGrow());
+                        //const auto src_box = src_mf.boxArray()[mfi_src];
+
+                        const auto crse_box_int = boundary_to_take_from[lev-1][ii] & src_box;
+                        if (!crse_box_int.ok()) continue;
+
+                        const auto crse_box_int_fin = amrex::shift(amrex::refine(crse_box_int, ref_ratio), dtos[lev][ii].offset) & shifted_box_int;
+                        if (!crse_box_int_fin.ok()) continue;
+/*
+                        // Now we correctly pass FArrayBox objects instead of Array4
+                        mapper->interp(phi_fab, 0, mf_fab, 0, mf.nComp(), 
+                                       crse_box_int_fin, ref_ratio, 
+                                       geom_crse, geom_fine, 
+                                       bcr, 0, 0, RunOn::Gpu); */
+
+                        //std::cout << crse_box_int << " " << crse_box_int_fin << " " << shifted_box_int << " " << amrex::shift(amrex::refine(crse_box_int, refRatio(lev-1)), dtos[lev][ii].offset) << std::endl;
+
+                        //std::cout << boundary_to_take_from[lev][ii] << " " << boundary_to_take_from[lev-1][ii] << " " << array_vec_mf_g[ii][lev].boxArray() << " " << bx_dst_ << " " << dtos[lev][ii].offset << " " << dtos[lev-1][ii].offset << std::endl;
+
+                        amrex::ParallelFor(crse_box_int_fin, [=] AMREX_GPU_DEVICE(int i, int j, int k)
+                        {
+                            IntVect fine_idx(AMREX_D_DECL(i, j, k));  // Fine-level index
+
+                            IntVect coarse_idx = amrex::coarsen(fine_idx - dtos[lev][ii].offset, ref_ratio); 
+
+                            //std::cout << fine_idx << " aa " << coarse_idx << std::endl;
+
+                        //mf_arr(i, j, k) = 1;
+
+                            // Ensure coarse index is within bounds
+                            //if (crse_box_int.contains(coarse_idx)) 
+                            {
+                                // Access fine and coarse data arrays
+                                //Real fine_val = mf_arr(i, j, k);
+                                Real crse_val = phi_arr(coarse_idx);
+
+                                //std::cout << coarse_idx << " " << phi_arr(coarse_idx) << std::endl;
+
+                                // Example: Assign some interpolation operation
+                                mf_arr(i, j, k) = crse_val;///(ref_ratio[0]*ref_ratio[1]*ref_ratio[2]);
+                            }
+
+                            //mf_arr(i, j, k) = 1.;
+
+                            //if (i==0) exit(1);
+/*
+                            if (i>15) 
+                            {
+                                //mf_arr(i, j, k) = 10;
+                            }
+                            else if (i<0)
+                            {
+                                //mf_arr(i, j, k) = 0;
+                            }
+                            else
+                            {
+                                //std::cout << i << " " << j << " " << std::endl;
+                                //mf_arr(i, j, k) = 1000;
+                            }*/
+                            
+                        });
+                    }
+                }
+            }
+
+        }
+    }
+
+    for (MFIter mfi(mf, TilingIfNotGPU()); mfi.isValid(); ++mfi)
+    {
+        const auto& bx_dst = mfi.growntilebox(mf.nGrow());  // Destination box
+        const auto& mf_arr = mf.array(mfi);         // Destination array
+
+        for (int ii=0; ii<2; ii++)
+        {
+            const auto shifted_box_int = amrex::shift(boundary_to_take_from[lev][ii], dtos[lev][ii].offset) & bx_dst;
+            if (!shifted_box_int.ok()) continue;
+
+            for (int mfi_src=0; mfi_src<array_vec_mf_g[ii][lev].local_size(); ++mfi_src)
+            {
+                auto src_box = amrex::grow(array_vec_mf_g[ii][lev].boxArray()[mfi_src], array_vec_mf_g[ii][lev].nGrow());
+
+                const auto& phi_arr = array_vec_mf_g[ii][lev].const_array(mfi_src); 
+
+                auto bx_int = src_box & boundary_to_take_from[lev][ii];
+                if (!bx_int.ok()) continue;
+
+                bx_int.shift(dtos[lev][ii].offset);
+                auto bx_int_tr = bx_int & bx_dst;
+                if (!bx_int_tr.ok()) continue;
+                
+
+                //if (mfi_src==0) std::cout << phi_arr(0,0,0) << " " << phi_arr(-1,0,0) << std::endl;
+
+                //if (ii==0) std::cout << lev << " " << array_vec_mf_g[ii][lev].local_size() << " " << mfi_src << " " << ii << " " << src_box << " " << bx_dst << " " << bx_int_tr << std::endl; // check here if you get the expected numbering
+
+                amrex::ParallelFor(bx_int_tr, [=] AMREX_GPU_DEVICE(int i, int j, int k)
+                {
+#if (AMREX_SPACEDIM == 2)
+                    mf_arr(i, j, k) = phi_arr(i-dtos[lev][ii].offset[0], j-dtos[lev][ii].offset[1], k);
+#elif (AMREX_SPACEDIM == 3)
+                    mf_arr(i, j, k) = phi_arr(i-dtos[lev][ii].offset[0], j-dtos[lev][ii].offset[1], k-dtos[lev][ii].offset[2]);
+#endif
+                });
+            }
+            
+        }
+    }
+
+};
+
 
 
 // compute a new multifab by coping in phi from valid region and filling ghost cells
@@ -772,6 +859,8 @@ void
 AmrCoreAdv::FillPatch (int lev, Real time, MultiFab& mf, int icomp, int ncomp,
                        FillPatchType fptype)
 {
+    //if (index_core==2 && finest_level==1) std::cout <<  array_vec_mf_g[0][1] << std::endl;
+
     // Modify here for the boundary conditions
     if (lev == 0)
     {
@@ -790,14 +879,14 @@ AmrCoreAdv::FillPatch (int lev, Real time, MultiFab& mf, int icomp, int ncomp,
             CpuBndryFuncFab bndry_func(nullptr);  // Without EXT_DIR, we can pass a nullptr.
             PhysBCFunct<CpuBndryFuncFab> physbc(geom[lev],bcs,bndry_func);  // here are used the BCs
             amrex::FillPatchSingleLevel(mf, time, smf, stime, 0, icomp, ncomp, geom[lev], physbc, 0);
-            mf.FillBoundary(geom[lev].periodicity());
 
-            FillRightGhostWithLeftBoundary(mf);
+            // fill now the ghost cells of mf
+            FillGhostBoundary(mf, lev, bcs, nullptr); // just perform a copy operation
 
-            // put here the communication part,
-            //OnesidedMultiBlockBoundaryFn multi_block_boundaries{this, other_core, dtos, boundary_to_fill};  
-            //FillBoundaryFn FillBoundary_nonloc{std::move(multi_block_boundaries)};
-            //FillBoundary_nonloc();
+
+            //int ref_ratio = fine_geom.Domain().length(0) / coarse_geom.Domain().length(0); // Compute refinement ratio
+            //CopyBoxMultiLevel(mf, array_vec_mf_g[1][0], geom[0], other_core[0]->Geom(0), boundary_to_take_from[0][1], 0, 0, mf.nComp(), 1);
+
         }
     }
     else
@@ -807,7 +896,7 @@ AmrCoreAdv::FillPatch (int lev, Real time, MultiFab& mf, int icomp, int ncomp,
         GetData(lev-1, time, cmf, ctime);
         GetData(lev  , time, fmf, ftime);
 
-        Interpolater* mapper = &cell_cons_interp;
+        Interpolater* mapper = &cell_cons_interp; // maybe would need to chage the interpolator in the future, look at AMReX_Interpolater.H/.cpp
 
         if (fptype == FillPatchType::fillpatch_class) {
             if (fillpatcher[lev] == nullptr) {
@@ -815,6 +904,12 @@ AmrCoreAdv::FillPatch (int lev, Real time, MultiFab& mf, int icomp, int ncomp,
                     (boxArray(lev  ), DistributionMap(lev  ), Geom(lev  ),
                      boxArray(lev-1), DistributionMap(lev-1), Geom(lev-1),
                      mf.nGrowVect(), mf.nComp(), mapper);
+
+                /*
+                fillpatcher_ghost_boundary[lev] = std::make_unique<FillPatcher<MultiFab>> // look at AMReX_FillPatcher.H
+                    (               boxArray(lev  ),                DistributionMap(lev  ),                Geom(lev  ),
+                     other_core[0]->boxArray(lev-1), other_core[0]->DistributionMap(lev-1), other_core[0]->Geom(lev-1),
+                     mf.nGrowVect(), mf.nComp(), mapper);*/
             }
         }
 
@@ -841,15 +936,43 @@ AmrCoreAdv::FillPatch (int lev, Real time, MultiFab& mf, int icomp, int ncomp,
             PhysBCFunct<CpuBndryFuncFab> cphysbc(geom[lev-1],bcs,bndry_func); // coarse
             PhysBCFunct<CpuBndryFuncFab> fphysbc(geom[lev],bcs,bndry_func);   // fine
 
+            // bisogna stare attenti, probabilmente bisogna fare un regrid dopo aver meshato i singoli core per almeno 
+            // controllare che sia rispettato il rapporto 2:1, a questo punto tanto vale imporre uguaglianza di livelli per effettuare
+            // solo una copia di valori da una parte all'altra
+            //PhysBCFunct<CpuBndryFuncFab> cphysbc_0(other_core[0]->Geom(lev-1),bcs,bndry_func); // coarse
+            //PhysBCFunct<CpuBndryFuncFab> cphysbc_1(other_core[1]->Geom(lev-1),bcs,bndry_func); // coarse
+            //PhysBCFunct<CpuBndryFuncFab> cphysbc_2(other_core[2]->Geom(lev-1),bcs,bndry_func); // coarse
+            //PhysBCFunct<CpuBndryFuncFab> cphysbc_3(other_core[3]->Geom(lev-1),bcs,bndry_func); // coarse
+
             if (fptype == FillPatchType::fillpatch_class) {
                 fillpatcher[lev]->fill(mf, mf.nGrowVect(), time,
                                        cmf, ctime, fmf, ftime, 0, icomp, ncomp,
                                        cphysbc, 0, fphysbc, 0, bcs, 0);
+
+                FillGhostBoundary(mf, lev, bcs, &pc_interp); // fill ghosts by simply copying if the level is available, in case it probably doesn't fill, so you need to check it
+
+                // I think that by simply adding this interpolator function, after the copying information it is suffiient to fill the fine ghosts
+                //fillpatcher_ghost_boundary[lev]->fillCoarseFineBoundary(mf, mf.nGrowVect(), time, 
+                //                       cmf, ctime, 0, icomp, ncomp, 
+                //                       cphysbc, );
+                // (MF& mf, IntVect const& nghost, Real time,
+                //                 Vector<MF*> const& cmf,
+                //                 Vector<Real> const& ct,
+                //                 int scomp, int dcomp, int ncomp,
+                //                 BC& cbc, int cbccomp,
+                //                 Vector<BCRec> const& bcs, int bcscomp,
+                //                 PreInterpHook const& pre_interp = {},
+                //                 PostInterpHook const& post_interp = {})
             } else {
                 amrex::FillPatchTwoLevels(mf, time, cmf, ctime, fmf, ftime,
                                           0, icomp, ncomp, geom[lev-1], geom[lev],
                                           cphysbc, 0, fphysbc, 0, refRatio(lev-1),
                                           mapper, bcs, 0);
+
+//std::cout << "I'm in FillPatch!!!!" << std::endl;
+//exit(1);
+                // fill now the ghost cells of mf
+                FillGhostBoundary(mf, lev, bcs, &pc_interp); // fills by simply copying
             }
         }
     }
@@ -891,6 +1014,8 @@ AmrCoreAdv::FillCoarsePatch (int lev, Real time, MultiFab& mf, int icomp, int nc
         amrex::InterpFromCoarseLevel(mf, time, *cmf[0], 0, icomp, ncomp, geom[lev-1], geom[lev],
                                      cphysbc, 0, fphysbc, 0, refRatio(lev-1),
                                      mapper, bcs, 0);
+
+        FillGhostBoundary(mf, lev, bcs, nullptr);
     }
 }
 
@@ -925,24 +1050,27 @@ AmrCoreAdv::GetData (int lev, Real time, Vector<MultiFab*>& data, Vector<Real>& 
 void
 AmrCoreAdv::timeStepWithSubcycling (int lev, Real time, int iteration)
 {
+    //std::cout << index_core << " " << regrid_int << std::endl;
     if (regrid_int > 0)  // We may need to regrid
     {
 
         // help keep track of whether a level was already regridded
         // from a coarser level call to regrid
-        static Vector<int> last_regrid_step(max_level+1, 0);
+        //static amrex::Vector<int> last_regrid_step(max_level+1, 0);
 
         // regrid changes level "lev+1" so we don't regrid on max_level
         // also make sure we don't regrid fine levels again if
         // it was taken care of during a coarser regrid
+
+        //std::cout << index_core << " ///////////////////////////////////////  " << lev << " " << max_level << " " <<  istep[lev] << " " << last_regrid_step[lev] << " " << last_regrid_step.size() << std::endl;
         if (lev < max_level && istep[lev] > last_regrid_step[lev])
         {
             if (istep[lev] % regrid_int == 0)
-            {
+            { 
                 // regrid could add newly refine levels (if finest_level < max_level)
                 // so we save the previous finest level index
                 int old_finest = finest_level;
-                regrid(lev, time);
+                regrid(lev, time); // the mesh adaption is carried on just here
 
                 // mark that we have regridded this level already
                 for (int k = lev; k <= finest_level; ++k) {

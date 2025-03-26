@@ -7,7 +7,7 @@ using namespace amrex;
 void
 AmrCoreAdv::AdvancePhiAtLevel (int lev, Real time, Real dt_lev, int /*iteration*/, int /*ncycle*/)
 {
-    constexpr int num_grow = 3;
+    constexpr int num_grow = 3; // number of ghost cells, depends on the stencil of the method
 
     std::swap(phi_old[lev], phi_new[lev]);
 
@@ -33,8 +33,7 @@ AmrCoreAdv::AdvancePhiAtLevel (int lev, Real time, Real dt_lev, int /*iteration*
 
     // State with ghost cells
     MultiFab Sborder(grids[lev], dmap[lev], S_new.nComp(), num_grow);
-    FillPatch(lev, time, Sborder, 0, Sborder.nComp(),
-              FillPatchType::fillpatch_class);
+    FillPatch(lev, time, Sborder, 0, Sborder.nComp(), FillPatchType::fillpatch_class);
 
 #ifdef AMREX_USE_OMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
