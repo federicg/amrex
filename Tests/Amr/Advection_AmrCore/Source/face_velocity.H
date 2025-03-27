@@ -39,7 +39,7 @@ void get_face_velocity_x(int i, int j, int k,
                          amrex::Array4<amrex::Real> const& psi,
                          amrex::Real dy)
 {
-    vx(i,j,k) = -( (psi(i,j+1,0)+psi(i-1,j+1,0)) - (psi(i,j-1,0)+psi(i-1,j-1,0)) ) * (0.25/dy);
+    vx(i,j,k) =  1.0; //-( (psi(i,j+1,0)+psi(i-1,j+1,0)) - (psi(i,j-1,0)+psi(i-1,j-1,0)) ) * (0.25/dy);
 }
 
 AMREX_GPU_DEVICE
@@ -49,7 +49,7 @@ void get_face_velocity_y(int i, int j, int k,
                          amrex::Array4<amrex::Real> const& psi,
                          amrex::Real dx)
 {
-    vy(i,j,k) =  ( (psi(i+1,j,0)+psi(i+1,j-1,0)) - (psi(i-1,j,0)+psi(i-1,j-1,0)) ) * (0.25/dx);
+    vy(i,j,k) =  0.0;// ( (psi(i+1,j,0)+psi(i+1,j-1,0)) - (psi(i-1,j,0)+psi(i-1,j-1,0)) ) * (0.25/dx);
 }
 
 AMREX_GPU_DEVICE
