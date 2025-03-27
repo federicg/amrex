@@ -23,6 +23,9 @@ int main(int argc, char* argv[])
 {
     amrex::Initialize(argc,argv);
 
+    int rank = amrex::ParallelDescriptor::MyProc();  // Get the MPI rank
+    int nprocs = amrex::ParallelDescriptor::NProcs();  // Get the total number of ranks
+
     {
         // timer for profiling
         BL_PROFILE("main()"); 
@@ -129,7 +132,20 @@ int main(int argc, char* argv[])
             amr_core_adv_1.ComputeDt(); // be careful here about the sync of dt, for velocity equal to a number everywhere there are no issues right now
             amr_core_adv_2.ComputeDt();
 
+            if (!amr_core_adv_1.do_subcycle) { // sync the time steps if not usin the subcycling
+                const auto min_dt = std::min(amr_core_adv_1.dt[0], amr_core_adv_2.dt[0]);
+
+                for (int lev = 0; lev <= amr_core_adv_1.getFinestLevel(); ++lev) {
+                    amr_core_adv_1.dt[lev] = min_dt;
+                }
+
+                for (int lev = 0; lev <= amr_core_adv_2.getFinestLevel(); ++lev) {
+                    amr_core_adv_2.dt[lev] = min_dt;
+                }
+            }
+
             if (amr_core_adv_1.dt[0] != amr_core_adv_2.dt[0]) {
+                std::cout << amr_core_adv_1.dt[0] << " " << amr_core_adv_2.dt[0] << std::endl;
                 throw std::runtime_error("You have to fix the syncronization between times in various cores");
             }
 

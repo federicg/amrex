@@ -50,7 +50,7 @@ amr.regrid_int      = 1       # how often to regrid
 # *****************************************************************
 adv.cfl            = .7     # CFL constraint for explicit advection
 
-adv.do_subcycle    = 1       # Do we subcycle in time?
+adv.do_subcycle    = 0       # Do we subcycle in time?
 
 # *****************************************************************
 # Should we reflux at coarse-fine boundaries?
