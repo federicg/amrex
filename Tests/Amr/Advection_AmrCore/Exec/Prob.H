@@ -29,8 +29,10 @@ initdata(amrex::Box const& bx, amrex::Array4<amrex::Real> const& phi,
                 Real x = prob_lo[0] + (0.5+i)*dx[0];
 
                 Real r2 = std::sqrt((x-center[0]) * (x-center[0]) + (y-center[1]) * (y-center[1]));
+                // Gaussian function with smooth transition
+                Real sigma = R / 3.0; // Adjust smoothness
                 phi(i,j,k) = r2 < R ? 1.0 : 0.0; 
-                //phi(i,j,k) = x < 0 ? 1.0 : 0.0; 
+                //phi(i, j, k) = std::exp(-r2*r2 / (2.0 * sigma * sigma));
 
                 //Real r2 = (std::pow(x-0.5, 2) + std::pow((y-0.75),2)) / 0.01;
                 //phi(i,j,k) = 1.0 + std::exp(-r2);
