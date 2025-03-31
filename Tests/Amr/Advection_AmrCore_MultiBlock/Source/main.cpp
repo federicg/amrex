@@ -49,20 +49,16 @@ int main(int argc, char* argv[])
         amr_info.ref_ratio      .assign(amr_info.max_level+1, IntVect{AMREX_D_DECL( 2,  2,  1)}); // controlla qui se non raffina come pensi
         amr_info.verbose = 1;
 
-        //amr_info.v = 1;
 
         // constructor - reads in parameters from inputs file
         //             - sizes multilevel arrays and data structures
         AmrCoreAdv amr_core_adv_1(geom1, 1, amr_info); // write the block number, then the constructor should be able to get from the input fil multiple coordinate corresponding to vrious Blocks
         AmrCoreAdv amr_core_adv_2(geom2, 2, amr_info);
 
-        //std::cout << amr_core_adv_1.phi_new[0].nGrow() << std::endl;
-        //exit(1);
 
         // set the pointers to the cores
         amr_core_adv_1.setOtherCore(&amr_core_adv_2, &amr_core_adv_2, &amr_core_adv_2, &amr_core_adv_2);
         amr_core_adv_2.setOtherCore(&amr_core_adv_1, &amr_core_adv_1, &amr_core_adv_1, &amr_core_adv_1);
-
 
 
         // put here the communication part, 0 is the right boundary of the receiver, 1 is the left boundary of the receiver, 2 is the upper boundary of the receiver, 3, is the lower boundary of the receiver
@@ -114,16 +110,18 @@ int main(int argc, char* argv[])
                 current_ref_ratio *= amr_info.ref_ratio[lev];
             }
         }
-        //exit(1);
 
         // now move the block boundaries,
         amr_core_adv_1.MoveMultiBlocks();
         amr_core_adv_2.MoveMultiBlocks();
 
-
         // initialize AMR data, and writes the initial condition 
         amr_core_adv_1.InitData();
         amr_core_adv_2.InitData();
+
+        // call function to create new multifab from the stored pointers,
+        amr_core_adv_1.create_ghost_multifabs(num_ghost); // set the number of ghosts
+        amr_core_adv_2.create_ghost_multifabs(num_ghost); // set the number of ghosts
 
         // advance solution to final time
         Real cur_time = amr_core_adv_1.t_new[0];
@@ -152,16 +150,25 @@ int main(int argc, char* argv[])
                 throw std::runtime_error("You have to fix the syncronization between times in various cores");
             }
 
-            // call function to create new multifab from the stored pointers,
-            amr_core_adv_1.create_ghost_multifabs(num_ghost); // set the number of ghosts
-            amr_core_adv_2.create_ghost_multifabs(num_ghost); // set the number of ghosts
 
             int lev = 0;
             int iteration = 1;
             if (amr_core_adv_1.do_subcycle) {
+
+                // apply the numerical scheme
                 amr_core_adv_1.timeStepWithSubcycling(lev, cur_time, iteration);
                 amr_core_adv_2.timeStepWithSubcycling(lev, cur_time, iteration);
             } else {
+
+                // perform the regridding on each core
+                amr_core_adv_1.perform_regrid(cur_time);
+                amr_core_adv_2.perform_regrid(cur_time);
+
+                // call function to create new multifab from the stored pointers,
+                amr_core_adv_1.create_ghost_multifabs(num_ghost); // set the number of ghosts
+                amr_core_adv_2.create_ghost_multifabs(num_ghost); // set the number of ghosts
+
+                // apply the numerical scheme
                 amr_core_adv_1.timeStepNoSubcycling(cur_time, iteration);
                 amr_core_adv_2.timeStepNoSubcycling(cur_time, iteration);
             }

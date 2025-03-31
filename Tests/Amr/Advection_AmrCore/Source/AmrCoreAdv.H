@@ -117,6 +117,8 @@ public:
     // Advance all levels by the same dt
     void timeStepNoSubcycling (amrex::Real time, int iteration);
 
+    void perform_regrid(amrex::Real time, int ng);
+
     amrex::Vector<amrex::MultiFab> phi_new;
     amrex::Vector<amrex::MultiFab> phi_old;
 
@@ -144,11 +146,40 @@ public:
                            int num_comp, const amrex::IntVect ref_ratio);
     void create_ghost_multifabs(int);
 
+    struct OnesidedMultiBlockBoundaryFn {
+      amrex::NonLocalBC::MultiBlockIndexMapping dtos;
+      amrex::Box boundary_to_fill;
+      int i_boundary;
+      std::unique_ptr<amrex::NonLocalBC::MultiBlockCommMetaData> cmd{};
+      amrex::FabArrayBase::BDKey cached_dest_bd_key{};
+      amrex::FabArrayBase::BDKey cached_src_bd_key{};
+      amrex::NonLocalBC::ApplyDtosAndProjectionOnReciever<amrex::NonLocalBC::MultiBlockIndexMapping,
+                                                          amrex::NonLocalBC::MapComponents<amrex::NonLocalBC::Identity, amrex::NonLocalBC::SwapComponents<1, 2>>>
+          packing{amrex::NonLocalBC::PackComponents{0, 0, NUM_COMPONENTS}, dtos};
+
+      AMREX_NODISCARD amrex::NonLocalBC::CommHandler FillBoundary_nowait(amrex::MultiFab&, const std::array<amrex::Vector<amrex::MultiFab>, 4>&, int);
+
+      void FillBoundary_do_local_copy(amrex::MultiFab&, const std::array<amrex::Vector<amrex::MultiFab>, 4>&, int) const;
+      void FillBoundary_finish(amrex::MultiFab&, amrex::NonLocalBC::CommHandler) const;
+    };
+
+    struct FillBoundaryFn {
+      std::vector<OnesidedMultiBlockBoundaryFn> boundaries;
+      void operator()(amrex::MultiFab&, const std::array<amrex::Vector<amrex::MultiFab>, 4>&, int);
+    };
+
+    amrex::Vector<std::vector<OnesidedMultiBlockBoundaryFn>> multi_block_boundaries;
+    amrex::Vector<FillBoundaryFn> FillBoundary_ghost;
+
+    void MoveMultiBlocks();
+
 
     amrex::Vector<std::array<amrex::NonLocalBC::MultiBlockIndexMapping, 4>> dtos;
     amrex::Vector<std::array<amrex::Box, 4>> boundary_to_take_from; 
 
 private:
+
+    static constexpr int NUM_COMPONENTS = 1; // number of conservative variables 
 
     int index_core;
 

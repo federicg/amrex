@@ -50,9 +50,7 @@ int main(int argc, char* argv[])
         amr_info.blocking_factor.assign(amr_info.max_level+1, IntVect{AMREX_D_DECL( 8,  8,  8)}); // along, x, y, z
         amr_info.max_grid_size  .assign(amr_info.max_level+1, IntVect{AMREX_D_DECL(16, 16, 16)}); // along, x, y, z
         amr_info.ref_ratio      .assign(amr_info.max_level+1, IntVect{AMREX_D_DECL( 2,  2,  1)}); // controlla qui se non raffina come pensi
-
-
-        //amr_info.v = 1;
+        amr_info.verbose = 1;
 
         // constructor - reads in parameters from inputs file
         //             - sizes multilevel arrays and data structures
@@ -70,56 +68,114 @@ int main(int argc, char* argv[])
         // level 0 mesh communications
         // put here the communication part, 0 is the right boundary of the receiver, 1 is the left boundary of the receiver, 2 is the upper boundary of the receiver, 3, is the lower boundary of the receiver
         int num_ghost = 3;
-        auto current_ref_ratio = IntVect(AMREX_D_DECL(1, 1, 1));
-        for (int lev = 0; lev <= amr_info.max_level; ++lev)
         {
+            auto current_ref_ratio = IntVect(AMREX_D_DECL(1, 1, 1));
+            for (int lev = 0; lev <= amr_info.max_level; ++lev)
             {
-                NonLocalBC::MultiBlockIndexMapping dtos{};
-                dtos.permutation = IntVect{AMREX_D_DECL(0, 1, 2)};
-                dtos.offset = (domain.bigEnd(ix) + 1) * e_x*current_ref_ratio[ix];
-                dtos.sign = IntVect{AMREX_D_DECL(1, 1, 1)};
-                Box left_boundary_to_take_from_in_x = grow(Box{domain.smallEnd()*current_ref_ratio, ((domain.bigEnd()+1)*current_ref_ratio-1) - (domain.bigEnd(ix)*current_ref_ratio[ix]-(num_ghost-1)) * e_x}, num_ghost*e_y); 
+                {
+                    NonLocalBC::MultiBlockIndexMapping dtos{};
+                    dtos.permutation = IntVect{AMREX_D_DECL(0, 1, 2)};
+                    dtos.offset = (domain.bigEnd(ix) + 1) * e_x*current_ref_ratio[ix];
+                    dtos.sign = IntVect{AMREX_D_DECL(1, 1, 1)};
+                    Box left_boundary_to_take_from_in_x = grow(Box{domain.smallEnd()*current_ref_ratio, ((domain.bigEnd()+1)*current_ref_ratio-1) - (domain.bigEnd(ix)*current_ref_ratio[ix]-(num_ghost-1)) * e_x}, num_ghost*e_y); 
 
-                amr_core_adv_1.dtos[lev][0] = dtos;
-                amr_core_adv_1.boundary_to_take_from[lev][0] = left_boundary_to_take_from_in_x;
-            }
-            {
-                NonLocalBC::MultiBlockIndexMapping dtos{};
-                dtos.permutation = IntVect{AMREX_D_DECL(0, 1, 2)};
-                dtos.offset = (domain.bigEnd(ix) + 1) * e_x*current_ref_ratio[ix];
-                dtos.sign = IntVect{AMREX_D_DECL(1, 1, 1)};
-                Box left_boundary_to_take_from_in_x = grow(Box{domain.smallEnd()*current_ref_ratio, ((domain.bigEnd()+1)*current_ref_ratio-1) - (domain.bigEnd(ix)*current_ref_ratio[ix]-(num_ghost-1)) * e_x}, num_ghost*e_y); 
-                
-                amr_core_adv_2.dtos[lev][0] = dtos;
-                amr_core_adv_2.boundary_to_take_from[lev][0] = left_boundary_to_take_from_in_x;
-            }
-            {
-                NonLocalBC::MultiBlockIndexMapping dtos{};
-                dtos.permutation = IntVect{AMREX_D_DECL(0, 1, 2)};
-                dtos.offset = - (domain.bigEnd(ix) + 1) * e_x*current_ref_ratio[ix];
-                dtos.sign = IntVect{AMREX_D_DECL(1, 1, 1)};
-                Box right_boundary_to_take_from_in_x = grow(Box{(domain.bigEnd(ix)*current_ref_ratio[ix]-(num_ghost-1)) * e_x, ((domain.bigEnd()+1)*current_ref_ratio-1)}, num_ghost*e_y);
-                
-                amr_core_adv_2.dtos[lev][1] = dtos;
-                amr_core_adv_2.boundary_to_take_from[lev][1] = right_boundary_to_take_from_in_x;
-            }
-            {
-                NonLocalBC::MultiBlockIndexMapping dtos{};
-                dtos.permutation = IntVect{AMREX_D_DECL(0, 1, 2)};
-                dtos.offset = - (domain.bigEnd(ix) + 1) * e_x*current_ref_ratio[ix];
-                dtos.sign = IntVect{AMREX_D_DECL(1, 1, 1)};
-                Box right_boundary_to_take_from_in_x = grow(Box{(domain.bigEnd(ix)*current_ref_ratio[ix]-(num_ghost-1)) * e_x, ((domain.bigEnd()+1)*current_ref_ratio-1)}, num_ghost*e_y);
+                    amr_core_adv_1.dtos[lev][0] = dtos;
+                    amr_core_adv_1.boundary_to_take_from[lev][0] = left_boundary_to_take_from_in_x;
+                }
+                {
+                    NonLocalBC::MultiBlockIndexMapping dtos{};
+                    dtos.permutation = IntVect{AMREX_D_DECL(0, 1, 2)};
+                    dtos.offset = (domain.bigEnd(ix) + 1) * e_x*current_ref_ratio[ix];
+                    dtos.sign = IntVect{AMREX_D_DECL(1, 1, 1)};
+                    Box left_boundary_to_take_from_in_x = grow(Box{domain.smallEnd()*current_ref_ratio, ((domain.bigEnd()+1)*current_ref_ratio-1) - (domain.bigEnd(ix)*current_ref_ratio[ix]-(num_ghost-1)) * e_x}, num_ghost*e_y); 
+                    
+                    amr_core_adv_2.dtos[lev][0] = dtos;
+                    amr_core_adv_2.boundary_to_take_from[lev][0] = left_boundary_to_take_from_in_x;
+                }
+                {
+                    NonLocalBC::MultiBlockIndexMapping dtos{};
+                    dtos.permutation = IntVect{AMREX_D_DECL(0, 1, 2)};
+                    dtos.offset = - (domain.bigEnd(ix) + 1) * e_x*current_ref_ratio[ix];
+                    dtos.sign = IntVect{AMREX_D_DECL(1, 1, 1)};
+                    Box right_boundary_to_take_from_in_x = grow(Box{(domain.bigEnd(ix)*current_ref_ratio[ix]-(num_ghost-1)) * e_x, ((domain.bigEnd()+1)*current_ref_ratio-1)}, num_ghost*e_y);
+                    
+                    amr_core_adv_2.dtos[lev][1] = dtos;
+                    amr_core_adv_2.boundary_to_take_from[lev][1] = right_boundary_to_take_from_in_x;
+                }
+                {
+                    NonLocalBC::MultiBlockIndexMapping dtos{};
+                    dtos.permutation = IntVect{AMREX_D_DECL(0, 1, 2)};
+                    dtos.offset = - (domain.bigEnd(ix) + 1) * e_x*current_ref_ratio[ix];
+                    dtos.sign = IntVect{AMREX_D_DECL(1, 1, 1)};
+                    Box right_boundary_to_take_from_in_x = grow(Box{(domain.bigEnd(ix)*current_ref_ratio[ix]-(num_ghost-1)) * e_x, ((domain.bigEnd()+1)*current_ref_ratio-1)}, num_ghost*e_y);
 
-                amr_core_adv_1.dtos[lev][1] = dtos;
-                amr_core_adv_1.boundary_to_take_from[lev][1] = right_boundary_to_take_from_in_x;
+                    amr_core_adv_1.dtos[lev][1] = dtos;
+                    amr_core_adv_1.boundary_to_take_from[lev][1] = right_boundary_to_take_from_in_x;
+                }
+                current_ref_ratio *= amr_info.ref_ratio[lev];
             }
-            current_ref_ratio *= amr_info.ref_ratio[lev];
         }
+
+        // put here the communication part, 0 is the right boundary of the receiver, 1 is the left boundary of the receiver, 2 is the upper boundary of the receiver, 3, is the lower boundary of the receiver
+        {
+            auto current_ref_ratio = IntVect(AMREX_D_DECL(1, 1, 1));
+            for (int lev = 0; lev <= amr_info.max_level; ++lev)
+            {
+                Box domain_ref = amrex::refine(domain, current_ref_ratio);
+
+                // ------------------------------------------------------------------------- // 1
+                {   // Fill right boundary of core_1 with left mirror data of core_2
+                    NonLocalBC::MultiBlockIndexMapping dtos{};
+                    dtos.permutation = IntVect{AMREX_D_DECL(0, 1, 2)};
+                    dtos.offset = (domain_ref.bigEnd(ix) + 1) * e_x;
+                    dtos.sign = IntVect{AMREX_D_DECL(1, 1, 1)};
+                    Box right_boundary_to_fill_in_x = grow(shift(Box{(domain_ref.bigEnd(ix)-(num_ghost-1)) * e_x, domain_ref.bigEnd()}, num_ghost*e_x), num_ghost*e_y);
+
+                    amr_core_adv_1.multi_block_boundaries[lev].push_back({dtos, right_boundary_to_fill_in_x, 0});
+                } { // Fill left boundary of core_2 with right mirror data of core_1
+                    NonLocalBC::MultiBlockIndexMapping dtos{};
+                    dtos.permutation = IntVect{AMREX_D_DECL(0, 1, 2)};
+                    dtos.offset = - (domain_ref.bigEnd(ix) + 1) * e_x;
+                    dtos.sign = IntVect{AMREX_D_DECL(1, 1, 1)};
+                    Box left_boundary_to_fill_in_x = grow(shift(Box{domain_ref.smallEnd(), domain_ref.bigEnd() - (domain_ref.bigEnd(ix)-(num_ghost-1)) * e_x}, -num_ghost*e_x), num_ghost*e_y);  
+
+                    amr_core_adv_2.multi_block_boundaries[lev].push_back({dtos, left_boundary_to_fill_in_x, 1});
+                } 
+
+                // ------------------------------------------------------------------------- // 2
+                {   // Fill right boundary of core_2 with left mirror data of core_1
+                    NonLocalBC::MultiBlockIndexMapping dtos{};
+                    dtos.permutation = IntVect{AMREX_D_DECL(0, 1, 2)};
+                    dtos.offset = (domain_ref.bigEnd(ix) + 1) * e_x;
+                    dtos.sign = IntVect{AMREX_D_DECL(1, 1, 1)};
+                    Box right_boundary_to_fill_in_x = grow(shift(Box{(domain_ref.bigEnd(ix)-(num_ghost-1)) * e_x, domain_ref.bigEnd()}, num_ghost*e_x), num_ghost*e_y);
+
+                    amr_core_adv_2.multi_block_boundaries[lev].push_back({dtos, right_boundary_to_fill_in_x, 0});
+                } { // Fill left boundary of core_1 with right mirror data of core_2
+                    NonLocalBC::MultiBlockIndexMapping dtos{};
+                    dtos.permutation = IntVect{AMREX_D_DECL(0, 1, 2)};
+                    dtos.offset = - (domain_ref.bigEnd(ix) + 1) * e_x;
+                    dtos.sign = IntVect{AMREX_D_DECL(1, 1, 1)};
+                    Box left_boundary_to_fill_in_x = grow(shift(Box{domain_ref.smallEnd(), domain_ref.bigEnd() - (domain_ref.bigEnd(ix)-(num_ghost-1)) * e_x}, -num_ghost*e_x), num_ghost*e_y);
+
+                    amr_core_adv_1.multi_block_boundaries[lev].push_back({dtos, left_boundary_to_fill_in_x, 1});
+                } 
+
+                current_ref_ratio *= amr_info.ref_ratio[lev];
+            }
+        }
+
+        // now move the block boundaries,
+        amr_core_adv_1.MoveMultiBlocks();
+        amr_core_adv_2.MoveMultiBlocks();
 
 
         // initialize AMR data, and writes the initial condition 
         amr_core_adv_1.InitData();
         amr_core_adv_2.InitData();
+
+        amr_core_adv_1.create_ghost_multifabs(num_ghost); // set the number of ghosts
+        amr_core_adv_2.create_ghost_multifabs(num_ghost); // set the number of ghosts
 
         // advance solution to final time
         Real cur_time = amr_core_adv_1.t_new[0];
@@ -149,9 +205,6 @@ int main(int argc, char* argv[])
                 throw std::runtime_error("You have to fix the syncronization between times in various cores");
             }
 
-            // call function to create new multifab from the stored pointers,
-            amr_core_adv_1.create_ghost_multifabs(num_ghost); // set the number of ghosts
-            amr_core_adv_2.create_ghost_multifabs(num_ghost); // set the number of ghosts
 
             int lev = 0;
             int iteration = 1;
@@ -159,6 +212,18 @@ int main(int argc, char* argv[])
                 amr_core_adv_1.timeStepWithSubcycling(lev, cur_time, iteration);
                 amr_core_adv_2.timeStepWithSubcycling(lev, cur_time, iteration);
             } else {
+
+                // perform the regridding on each core
+                amr_core_adv_1.perform_regrid(cur_time, num_ghost);
+                amr_core_adv_2.perform_regrid(cur_time, num_ghost);
+
+                //
+                amr_core_adv_1.create_ghost_multifabs(num_ghost);
+                amrex::Print() << "created ghosts 1" << '\n';
+                amr_core_adv_2.create_ghost_multifabs(num_ghost);
+                amrex::Print() << "created ghosts 2" << '\n';
+
+                // apply the numerical scheme 
                 amr_core_adv_1.timeStepNoSubcycling(cur_time, iteration);
                 amr_core_adv_2.timeStepNoSubcycling(cur_time, iteration);
             }

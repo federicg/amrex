@@ -369,7 +369,7 @@ void AmrCoreAdv::MakeNewLevelFromScratch (int lev, Real time, const BoxArray& ba
 // tag all cells for refinement
 // overrides the pure virtual function in AmrCore
 void
-AmrCoreAdv::ErrorEst (int lev, TagBoxArray& tags, Real /*time*/, int ngrow)
+AmrCoreAdv::ErrorEst (int lev, TagBoxArray& tags, Real /*time*/, int /*ngrow*/)
 {
     static bool first = true;
     static Vector<Real> phierr;
@@ -394,14 +394,25 @@ AmrCoreAdv::ErrorEst (int lev, TagBoxArray& tags, Real /*time*/, int ngrow)
 
 //    const int clearval = TagBox::CLEAR;
     const int tagval = TagBox::SET;
-    //const int fine_tagval = amrex::TagBoxArray::ADD; // Tag for additional finer refinement
 
-    const MultiFab& state = phi_new[lev];
+    // create a copy of phi_new[lev] with allocated ghosts
+    MultiFab state(phi_new[lev].boxArray(), phi_new[lev].DistributionMap(), phi_new[lev].nComp(), array_vec_mf_g[0][lev].nGrowVect());
+    state.setVal(0);
+    state.ParallelCopy(phi_new[lev]);
+    state.FillBoundary();
+
+    // fill now the ghosts with communicating blocks 
+    FillBoundary_ghost[lev](state, array_vec_mf_g, lev); 
+
+    //const MultiFab& state = phi_new[lev]; 
 
     const auto problo = Geom(lev).ProbLoArray();
     const auto dx     = Geom(lev).CellSizeArray();
 
-    //std::cout << dx[0] << " " << this->Geom(lev).CellSizeArray()[0] << std::endl;
+    const auto valid_start = geom[lev].Domain().smallEnd();
+    const auto valid_end   = geom[lev].Domain().bigEnd();
+
+    //std::cout << lev << " " << problo[0] << " " << problo[1] << std::endl;
 
 #ifdef AMREX_USE_OMP
 #pragma omp parallel if(Gpu::notInLaunchRegion())
@@ -410,8 +421,8 @@ AmrCoreAdv::ErrorEst (int lev, TagBoxArray& tags, Real /*time*/, int ngrow)
 
         for (MFIter mfi(state,TilingIfNotGPU()); mfi.isValid(); ++mfi)
         {
-            const Box& bx = mfi.tilebox();
-            //const Box& bx = mfi.tilebox().grow(ngrow);
+            const Box bx = mfi.tilebox();
+            //const Box bx = mfi.growntilebox(state.nGrow());
             const auto statefab = state.array(mfi);
             const auto tagfab  = tags.array(mfi);
             Real phierror = phierr[lev];
@@ -419,18 +430,20 @@ AmrCoreAdv::ErrorEst (int lev, TagBoxArray& tags, Real /*time*/, int ngrow)
             amrex::ParallelFor(bx,
             [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
             {
-                //const auto lo = lbound(bx); 
+                //const auto lo = lbound(bx);
                 //const auto hi = ubound(bx);
 
-                Real x = problo[0] + (0.5+i)*dx[0];
-                Real y = problo[1] + (0.5+j)*dx[1];
+                //std::cout << lev << " " << geom[0].Domain().bigEnd() << " " << bx.bigEnd() << " " << bx.smallEnd() << " " << valid_bx.bigEnd() << " " << valid_bx.smallEnd() << std::endl;
 
-                if (x>-0.5) tagfab(i,j,k) = tagval;
-                //if (lev==0 && x>0) tagfab(i,j,k) = tagval; 
-                //if (lev==1 && x>0.3) tagfab(i,j,k) = tagval; 
+                //Real x = problo[0] + (0.5+i)*dx[0];
+                //Real y = problo[1] + (0.5+j)*dx[1];
+
+                //if (x>0.25&&x<0.75&&y>0) tagfab(i,j,k) = tagval;
+                //if (lev==0 && x>-.5) tagfab(i,j,k) = tagval; 
+                //if (lev==1 && x>0) tagfab(i,j,k) = tagval; 
                 //if (x>0.1) tagfab(i,j,k) = fine_tagval; 
 
-                //state_error(i, j, k, tagfab, statefab, phierror, tagval);
+                state_error(i, j, k, tagfab, statefab, phierror, tagval, valid_start, valid_end);
             });
         }
     }
@@ -441,7 +454,7 @@ void
 AmrCoreAdv::ReadParameters ()
 {
     {
-        ParmParse pp;  // Traditionally, max_step and stop_time do not have prefix.
+        ParmParse pp; // Traditionally, max_step and stop_time do not have prefix.
         pp.query("max_step", max_step);
         pp.query("stop_time", stop_time);
     }
@@ -584,8 +597,7 @@ AmrCoreAdv::FillBoundaryFn::operator()(MultiFab& mf, std::array<amrex::Vector<am
     for (std::size_t i = 0; i < n_boundaries; ++i) {
         boundaries[i].FillBoundary_finish(mf, std::move(comms[i])); // NOLINT(performance-move-const-arg)
     }
-
-};
+}
 
 
 
@@ -671,8 +683,10 @@ AmrCoreAdv::FillPatch (int lev, Real time, MultiFab& mf, int icomp, int ncomp,
         }
     }
     // fill now the ghost cells of mf
-    //std::cout << " quiiiiiiiiii " << std::endl;
-    FillBoundary_ghost[lev](mf, array_vec_mf_g, lev);
+    if (mf.nGrow()==array_vec_mf_g[0][lev].nGrow())
+    {
+        FillBoundary_ghost[lev](mf, array_vec_mf_g, lev);
+    }
 }
 
 // fill an entire multifab by interpolating from the coarser level
@@ -739,6 +753,24 @@ AmrCoreAdv::GetData (int lev, Real time, Vector<MultiFab*>& data, Vector<Real>& 
         datatime.push_back(t_old[lev]);
         datatime.push_back(t_new[lev]);
     }
+}
+
+void 
+AmrCoreAdv::perform_regrid(Real time)
+{
+    if (max_level > 0 && regrid_int > 0)  // We may need to regrid
+    {
+        if (istep[0] % regrid_int == 0)
+        {
+            regrid(0, time);
+#ifdef AMREX_PARTICLES
+            if (do_tracers)
+            {
+                    TracerPC->Redistribute();
+            }
+#endif
+        }
+    } 
 }
 
 
@@ -859,20 +891,6 @@ AmrCoreAdv::timeStepWithSubcycling (int lev, Real time, int iteration)
 void
 AmrCoreAdv::timeStepNoSubcycling (Real time, int iteration)
 {
-    if (max_level > 0 && regrid_int > 0)  // We may need to regrid
-    {
-        if (istep[0] % regrid_int == 0)
-        {
-            regrid(0, time);
-
-#ifdef AMREX_PARTICLES
-            if (do_tracers)
-            {
-                    TracerPC->Redistribute();
-            }
-#endif
-        }
-    }
 
     if (Verbose()) {
         for (int lev = 0; lev <= finest_level; lev++)
@@ -903,7 +921,7 @@ AmrCoreAdv::timeStepNoSubcycling (Real time, int iteration)
         fp.reset(); // Because the data have changed.
     }
 
-    for (int lev = 0; lev <= finest_level; lev++) {
+    for (int lev = 0; lev <= max_level; lev++) { //(int lev = 0; lev <= finest_level; lev++) {
         ++istep[lev];
     }
 
@@ -1002,6 +1020,14 @@ AmrCoreAdv::PlotFileMF () const
     Vector<const MultiFab*> r;
     for (int i = 0; i <= finest_level; ++i) {
         r.push_back(&phi_new[i]);
+
+        //std::cout << refRatio(i) << std::endl; 
+
+        //long num_cells = 0;
+        //for (amrex::MFIter mfi(phi_new[i]); mfi.isValid(); ++mfi) {
+        //    num_cells += mfi.validbox().numPts();  // Get the number of cells in each grid
+        //}
+        //amrex::Print() << "Total number of cells at level " << i << ": " << num_cells << "\n";
     }
     return r;
 }

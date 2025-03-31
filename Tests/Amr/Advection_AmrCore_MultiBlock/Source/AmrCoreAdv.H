@@ -117,6 +117,9 @@ public:
     // Advance all levels by the same dt
     void timeStepNoSubcycling (amrex::Real time, int iteration);
 
+    // Regrid routine
+    void perform_regrid(amrex::Real time);
+
     amrex::Vector<amrex::MultiFab> phi_new;
     amrex::Vector<amrex::MultiFab> phi_old;
 
