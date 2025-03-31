@@ -727,7 +727,10 @@ AmrCoreAdv::FillCoarsePatch (int lev, Real time, MultiFab& mf, int icomp, int nc
                                      mapper, bcs, 0);
     }
     // fill now the ghost cells of mf
-    FillBoundary_ghost[lev](mf, array_vec_mf_g, lev);
+    if (mf.nGrow()==array_vec_mf_g[0][lev].nGrow())
+    {
+        FillBoundary_ghost[lev](mf, array_vec_mf_g, lev);
+    }
 }
 
 void
