@@ -120,8 +120,12 @@ public:
     // Regrid routine
     void perform_regrid(amrex::Real time);
 
+    void check_finer();
+
     amrex::Vector<amrex::MultiFab> phi_new;
     amrex::Vector<amrex::MultiFab> phi_old;
+
+    amrex::Vector<amrex::MultiFab> level_tagger;
 
     std::array<amrex::Vector<amrex::MultiFab>, 4> array_vec_mf_g;
 
@@ -154,20 +158,34 @@ public:
           packing{amrex::NonLocalBC::PackComponents{0, 0, NUM_COMPONENTS}, dtos};
 
       AMREX_NODISCARD amrex::NonLocalBC::CommHandler FillBoundary_nowait(amrex::MultiFab&, std::array<amrex::Vector<amrex::MultiFab>, 4>&, int);
+      AMREX_NODISCARD amrex::NonLocalBC::CommHandler FillBoundary_nowait(amrex::MultiFab&, const std::array<const AmrCoreAdv*, 4>&, int);
 
       void FillBoundary_do_local_copy(amrex::MultiFab&, std::array<amrex::Vector<amrex::MultiFab>, 4>&, int) const;
+      void FillBoundary_do_local_copy(amrex::MultiFab&, const std::array<const AmrCoreAdv*, 4>&, int) const;
       void FillBoundary_finish(amrex::MultiFab&, amrex::NonLocalBC::CommHandler) const;
     };
 
     struct FillBoundaryFn {
       std::vector<OnesidedMultiBlockBoundaryFn> boundaries;
       void operator()(amrex::MultiFab&, std::array<amrex::Vector<amrex::MultiFab>, 4>&, int);
+      void operator()(amrex::MultiFab&, const std::array<const AmrCoreAdv*, 4>&, int);
     };
 
     amrex::Vector<std::vector<OnesidedMultiBlockBoundaryFn>> multi_block_boundaries;
     amrex::Vector<FillBoundaryFn> FillBoundary_ghost;
 
+    amrex::Vector<std::vector<OnesidedMultiBlockBoundaryFn>> multi_block_boundariesMarkers;
+    amrex::Vector<FillBoundaryFn> FillBoundaryMarkers_ghost;
+
     void MoveMultiBlocks();
+
+    void check_finer_communication();
+    void reset_level_tagger();
+
+    // if >= 0 we restart from a checkpoint
+    std::string restart_chkfile;
+
+    bool is_first = true;
 
 private:
 
@@ -255,9 +273,6 @@ private:
 
     ////////////////
     // runtime parameters
-
-    // if >= 0 we restart from a checkpoint
-    std::string restart_chkfile;
 
     // advective cfl number - dt = cfl*dx/umax
     amrex::Real cfl = 0.7;

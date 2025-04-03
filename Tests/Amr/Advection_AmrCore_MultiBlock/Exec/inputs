@@ -2,7 +2,7 @@
 # Run until nsteps == max_step or time == stop_time,
 #     whichever comes first
 # *****************************************************************
-max_step  = 1000
+max_step  = 400
 stop_time = 2.0
 
 # *****************************************************************
@@ -48,7 +48,7 @@ amr.regrid_int      = 1       # how often to regrid
 # *****************************************************************
 # Time step control
 # *****************************************************************
-adv.cfl            = .7     # CFL constraint for explicit advection
+adv.cfl            = 1     # CFL constraint for explicit advection
 
 adv.do_subcycle    = 0       # Do we subcycle in time?
 
@@ -62,7 +62,7 @@ adv.do_reflux = 1
 #            if phi > 1.1  at level 1, then refine
 #            if phi > 1.5  at level 2, then refine
 # *****************************************************************
-adv.phierr = 0.001  1.1  1.5
+adv.phierr = 0.1  0.2  0.3
 
 # *****************************************************************
 # Plotfile name and frequency

@@ -9,15 +9,54 @@ void
 state_error (int i, int j, int k,
              amrex::Array4<char> const& tag,
              amrex::Array4<amrex::Real const> const& state,
-             amrex::Real phierr, char tagval, amrex::IntVect valid_start, amrex::IntVect valid_end)
+             amrex::Array4<amrex::Real const> const& taggerfab,
+             amrex::Real phierr, char tagval, amrex::IntVect valid_start, amrex::IntVect valid_end, bool is_first)
 {
-    auto current_index = amrex::IntVect(AMREX_D_DECL(std::min(std::max(i, valid_start[0]), valid_end[0]), 
-                                                     std::min(std::max(j, valid_start[1]), valid_end[1]), 
-                                                     std::min(std::max(k, valid_start[2]), valid_end[2])));
+    amrex::IntVect current_index = amrex::IntVect(AMREX_D_DECL(i, j, k));
 
-    if (state(i, j, k) > phierr) {
+
+    bool is_taggerfab = false;
+    if (!is_first)
+    {
+        if (i==valid_end[0]) // right boundary
+        {
+            if (taggerfab(i+1,j,k)==1) // take ghost, hope it exists! check it if it does not work
+            {
+                is_taggerfab = true;
+            }
+        }
+        if (i==valid_start[0]) // left boundary
+        {
+
+            if (taggerfab(i-1,j,k)==1) // take ghost, hope it exists! check it if it does not work
+            {
+                //std::cout << current_index << " " << std::endl;
+                is_taggerfab = true; 
+            }
+        }
+        if (j==valid_end[1]) // upper boundary
+        {
+            if (taggerfab(i,j+1,k)==1) // take ghost, hope it exists! check it if it does not work
+            {
+                is_taggerfab = true;
+            }
+        }
+        if (j==valid_start[1]) // bottom boundary
+        {
+            if (taggerfab(i,j-1,k)==1) // take ghost, hope it exists! check it if it does not work
+            {
+                is_taggerfab = true;
+            }
+        }
+    }
+
+    if (state(current_index) > phierr || is_taggerfab) {
         tag(current_index) = tagval;
     }
+
+//#if (AMREX_SPACEDIM == 2)
+//#elif (AMREX_SPACEDIM == 3)
+//#endif
 }
 
 #endif

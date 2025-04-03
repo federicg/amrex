@@ -13,7 +13,7 @@ void conservative(int i, int j, int k,
                                amrex::Array4<amrex::Real const> const& flxy,
                                amrex::Array4<amrex::Real const> const& flxz),
                   AMREX_D_DECL(amrex::Real dtdx, amrex::Real dtdy, amrex::Real dtdz))
-{
+{  
     phi_out(i,j,k) = phi_in(i,j,k) +
                 ( AMREX_D_TERM( (flxx(i,j,k) - flxx(i+1,j,k)) * dtdx,
                               + (flxy(i,j,k) - flxy(i,j+1,k)) * dtdy,

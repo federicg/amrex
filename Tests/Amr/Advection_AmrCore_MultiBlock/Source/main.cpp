@@ -19,6 +19,51 @@ static constexpr IntVect e_x = IntVect::TheDimensionVector(ix);
 static constexpr IntVect e_y = IntVect::TheDimensionVector(iy);
 
 
+template <typename T>
+void
+build_ghost_communicators(T& amr_core_adv_bound_1, T& amr_core_adv_bound_2, const Box& domain_ref, const int num_ghost)
+{
+
+    // ------------------------------------------------------------------------- // 1
+    {   // Fill right boundary of core_1 with left mirror data of core_2
+        NonLocalBC::MultiBlockIndexMapping dtos{};
+        dtos.permutation = IntVect{AMREX_D_DECL(0, 1, 2)};
+        dtos.offset = (domain_ref.bigEnd(ix) + 1) * e_x;
+        dtos.sign = IntVect{AMREX_D_DECL(1, 1, 1)};
+        Box right_boundary_to_fill_in_x = grow(shift(Box{(domain_ref.bigEnd(ix)-(num_ghost-1)) * e_x, domain_ref.bigEnd()}, num_ghost*e_x), num_ghost*e_y);
+
+        amr_core_adv_bound_1.push_back({dtos, right_boundary_to_fill_in_x, 0});
+    } { // Fill left boundary of core_2 with right mirror data of core_1
+        NonLocalBC::MultiBlockIndexMapping dtos{};
+        dtos.permutation = IntVect{AMREX_D_DECL(0, 1, 2)};
+        dtos.offset = - (domain_ref.bigEnd(ix) + 1) * e_x;
+        dtos.sign = IntVect{AMREX_D_DECL(1, 1, 1)};
+        Box left_boundary_to_fill_in_x = grow(shift(Box{domain_ref.smallEnd(), domain_ref.bigEnd() - (domain_ref.bigEnd(ix)-(num_ghost-1)) * e_x}, -num_ghost*e_x), num_ghost*e_y);  
+
+        amr_core_adv_bound_2.push_back({dtos, left_boundary_to_fill_in_x, 1});
+    } 
+
+    // ------------------------------------------------------------------------- // 2
+    {   // Fill right boundary of core_2 with left mirror data of core_1
+        NonLocalBC::MultiBlockIndexMapping dtos{};
+        dtos.permutation = IntVect{AMREX_D_DECL(0, 1, 2)};
+        dtos.offset = (domain_ref.bigEnd(ix) + 1) * e_x;
+        dtos.sign = IntVect{AMREX_D_DECL(1, 1, 1)};
+        Box right_boundary_to_fill_in_x = grow(shift(Box{(domain_ref.bigEnd(ix)-(num_ghost-1)) * e_x, domain_ref.bigEnd()}, num_ghost*e_x), num_ghost*e_y);
+
+        amr_core_adv_bound_2.push_back({dtos, right_boundary_to_fill_in_x, 0});
+    } { // Fill left boundary of core_1 with right mirror data of core_2
+        NonLocalBC::MultiBlockIndexMapping dtos{};
+        dtos.permutation = IntVect{AMREX_D_DECL(0, 1, 2)};
+        dtos.offset = - (domain_ref.bigEnd(ix) + 1) * e_x;
+        dtos.sign = IntVect{AMREX_D_DECL(1, 1, 1)};
+        Box left_boundary_to_fill_in_x = grow(shift(Box{domain_ref.smallEnd(), domain_ref.bigEnd() - (domain_ref.bigEnd(ix)-(num_ghost-1)) * e_x}, -num_ghost*e_x), num_ghost*e_y);
+
+        amr_core_adv_bound_1.push_back({dtos, left_boundary_to_fill_in_x, 1});
+    } 
+}
+
+
 int main(int argc, char* argv[])
 {
     amrex::Initialize(argc,argv);
@@ -44,15 +89,20 @@ int main(int argc, char* argv[])
 
         AmrInfo amr_info{}; 
         amr_info.max_level = 1; // maximum level number allowed -- number of levels = max_level + 1
-        amr_info.blocking_factor.assign(amr_info.max_level+1, IntVect{AMREX_D_DECL( 8,  8,  8)}); // along, x, y, z
-        amr_info.max_grid_size  .assign(amr_info.max_level+1, IntVect{AMREX_D_DECL(16, 16, 16)}); // along, x, y, z
-        amr_info.ref_ratio      .assign(amr_info.max_level+1, IntVect{AMREX_D_DECL( 2,  2,  1)}); // controlla qui se non raffina come pensi
+        amr_info.blocking_factor.assign(amr_info.max_level+1, IntVect{AMREX_D_DECL(2, 2, 2)}); // along, x, y, z
+        //amr_info.max_grid_size  .assign(amr_info.max_level+1, IntVect{AMREX_D_DECL(4, 4, 4)}); // along, x, y, z
+        amr_info.ref_ratio      .assign(amr_info.max_level+1, IntVect{AMREX_D_DECL(2, 2, 1)}); // controlla qui se non raffina come pensi
         amr_info.verbose = 1;
+        
+
+        amr_info.refine_grid_layout = 1;
+        amr_info.n_error_buf.resize(1);
+        amr_info.n_error_buf[0] = IntVect(AMREX_D_DECL(0,0,0));
 
 
         // constructor - reads in parameters from inputs file
         //             - sizes multilevel arrays and data structures
-        AmrCoreAdv amr_core_adv_1(geom1, 1, amr_info); // write the block number, then the constructor should be able to get from the input fil multiple coordinate corresponding to vrious Blocks
+        AmrCoreAdv amr_core_adv_1(geom1, 1, amr_info); // write the block number, then the constructor should be able to get from the input fil multiple coordinate corresponding to various Blocks
         AmrCoreAdv amr_core_adv_2(geom2, 2, amr_info);
 
 
@@ -64,48 +114,15 @@ int main(int argc, char* argv[])
         // put here the communication part, 0 is the right boundary of the receiver, 1 is the left boundary of the receiver, 2 is the upper boundary of the receiver, 3, is the lower boundary of the receiver
         int num_ghost = 3;
         {
+            // communication part for the solution of the PDE
             auto current_ref_ratio = IntVect(AMREX_D_DECL(1, 1, 1));
             for (int lev = 0; lev <= amr_info.max_level; ++lev)
             {
                 Box domain_ref = amrex::refine(domain, current_ref_ratio);
 
-                // ------------------------------------------------------------------------- // 1
-                {   // Fill right boundary of core_1 with left mirror data of core_2
-                    NonLocalBC::MultiBlockIndexMapping dtos{};
-                    dtos.permutation = IntVect{AMREX_D_DECL(0, 1, 2)};
-                    dtos.offset = (domain_ref.bigEnd(ix) + 1) * e_x;
-                    dtos.sign = IntVect{AMREX_D_DECL(1, 1, 1)};
-                    Box right_boundary_to_fill_in_x = grow(shift(Box{(domain_ref.bigEnd(ix)-(num_ghost-1)) * e_x, domain_ref.bigEnd()}, num_ghost*e_x), num_ghost*e_y);
-
-                    amr_core_adv_1.multi_block_boundaries[lev].push_back({dtos, right_boundary_to_fill_in_x, 0});
-                } { // Fill left boundary of core_2 with right mirror data of core_1
-                    NonLocalBC::MultiBlockIndexMapping dtos{};
-                    dtos.permutation = IntVect{AMREX_D_DECL(0, 1, 2)};
-                    dtos.offset = - (domain_ref.bigEnd(ix) + 1) * e_x;
-                    dtos.sign = IntVect{AMREX_D_DECL(1, 1, 1)};
-                    Box left_boundary_to_fill_in_x = grow(shift(Box{domain_ref.smallEnd(), domain_ref.bigEnd() - (domain_ref.bigEnd(ix)-(num_ghost-1)) * e_x}, -num_ghost*e_x), num_ghost*e_y);  
-
-                    amr_core_adv_2.multi_block_boundaries[lev].push_back({dtos, left_boundary_to_fill_in_x, 1});
-                } 
-
-                // ------------------------------------------------------------------------- // 2
-                {   // Fill right boundary of core_2 with left mirror data of core_1
-                    NonLocalBC::MultiBlockIndexMapping dtos{};
-                    dtos.permutation = IntVect{AMREX_D_DECL(0, 1, 2)};
-                    dtos.offset = (domain_ref.bigEnd(ix) + 1) * e_x;
-                    dtos.sign = IntVect{AMREX_D_DECL(1, 1, 1)};
-                    Box right_boundary_to_fill_in_x = grow(shift(Box{(domain_ref.bigEnd(ix)-(num_ghost-1)) * e_x, domain_ref.bigEnd()}, num_ghost*e_x), num_ghost*e_y);
-
-                    amr_core_adv_2.multi_block_boundaries[lev].push_back({dtos, right_boundary_to_fill_in_x, 0});
-                } { // Fill left boundary of core_1 with right mirror data of core_2
-                    NonLocalBC::MultiBlockIndexMapping dtos{};
-                    dtos.permutation = IntVect{AMREX_D_DECL(0, 1, 2)};
-                    dtos.offset = - (domain_ref.bigEnd(ix) + 1) * e_x;
-                    dtos.sign = IntVect{AMREX_D_DECL(1, 1, 1)};
-                    Box left_boundary_to_fill_in_x = grow(shift(Box{domain_ref.smallEnd(), domain_ref.bigEnd() - (domain_ref.bigEnd(ix)-(num_ghost-1)) * e_x}, -num_ghost*e_x), num_ghost*e_y);
-
-                    amr_core_adv_1.multi_block_boundaries[lev].push_back({dtos, left_boundary_to_fill_in_x, 1});
-                } 
+                // build the communciation
+                build_ghost_communicators(amr_core_adv_1.multi_block_boundaries       [lev], amr_core_adv_2.multi_block_boundaries       [lev], domain_ref, num_ghost);
+                build_ghost_communicators(amr_core_adv_1.multi_block_boundariesMarkers[lev], amr_core_adv_2.multi_block_boundariesMarkers[lev], domain_ref, 1        );
 
                 current_ref_ratio *= amr_info.ref_ratio[lev];
             }
@@ -118,6 +135,33 @@ int main(int argc, char* argv[])
         // initialize AMR data, and writes the initial condition 
         amr_core_adv_1.InitData();
         amr_core_adv_2.InitData();
+
+        int max_finest_cores = std::max(amr_core_adv_1.getFinestLevel(), amr_core_adv_2.getFinestLevel()); 
+        for (int ii_re=0; ii_re<max_finest_cores; ii_re++)
+        { 
+            // check here the presence of cells to be refined at the interface between various cores
+            amr_core_adv_1.check_finer();
+            amr_core_adv_2.check_finer();
+
+            // perform now the communciation phase
+            amr_core_adv_1.check_finer_communication();
+            amr_core_adv_2.check_finer_communication();
+
+            // perform the regridding on each core
+            amr_core_adv_1.perform_regrid(amr_core_adv_1.t_new[0]);
+            amr_core_adv_2.perform_regrid(amr_core_adv_1.t_new[0]);
+        }
+
+        if (amr_core_adv_1.restart_chkfile.empty()) {
+            if (amr_core_adv_1.chk_int > 0) {
+                amr_core_adv_1.WriteCheckpointFile();
+                amr_core_adv_2.WriteCheckpointFile();
+            }
+        }
+        if (amr_core_adv_1.plot_int > 0) {
+            amr_core_adv_1.WritePlotFile();
+            amr_core_adv_2.WritePlotFile();
+        }
 
         // call function to create new multifab from the stored pointers,
         amr_core_adv_1.create_ghost_multifabs(num_ghost); // set the number of ghosts
@@ -160,9 +204,34 @@ int main(int argc, char* argv[])
                 amr_core_adv_2.timeStepWithSubcycling(lev, cur_time, iteration);
             } else {
 
-                // perform the regridding on each core
+                // reset the tagger
+                amr_core_adv_1.reset_level_tagger();
+                amr_core_adv_2.reset_level_tagger();
+
+                // perform the regridding on each core first
                 amr_core_adv_1.perform_regrid(cur_time);
                 amr_core_adv_2.perform_regrid(cur_time);
+
+                //std::cout << (amr_core_adv_1.phi_new[0].sum() + amr_core_adv_2.phi_new[0].sum()) << " :aaaaaaaaaaaaaaa" << std::endl;
+
+                max_finest_cores = std::max(amr_core_adv_1.getFinestLevel(), amr_core_adv_2.getFinestLevel());
+
+                //if (cur_time<.5)
+                for (int ii_re=0; ii_re<max_finest_cores; ii_re++)
+                { 
+                    // check here the presence of cells to be refined at the interface between various cores
+                    amr_core_adv_1.check_finer();
+                    amr_core_adv_2.check_finer();
+
+                    // perform now the communciation phase
+                    amr_core_adv_1.check_finer_communication();
+                    amr_core_adv_2.check_finer_communication();
+
+                    // perform the regridding on each core
+                    amr_core_adv_1.perform_regrid(cur_time);
+                    amr_core_adv_2.perform_regrid(cur_time);
+                    //std::cout << (amr_core_adv_1.phi_new[0].sum() + amr_core_adv_2.phi_new[0].sum()) << " :aaaaaaaaaaaaaaabbbbbbbbb" << std::endl;
+                }
 
                 // call function to create new multifab from the stored pointers,
                 amr_core_adv_1.create_ghost_multifabs(num_ghost); // set the number of ghosts
@@ -171,6 +240,8 @@ int main(int argc, char* argv[])
                 // apply the numerical scheme
                 amr_core_adv_1.timeStepNoSubcycling(cur_time, iteration);
                 amr_core_adv_2.timeStepNoSubcycling(cur_time, iteration);
+
+                //std::cout << (amr_core_adv_1.phi_new[0].sum() + amr_core_adv_2.phi_new[0].sum()) << " :aaaaaaaaaaaaaaa" << std::endl;
             }
 
             cur_time += amr_core_adv_1.dt[0];

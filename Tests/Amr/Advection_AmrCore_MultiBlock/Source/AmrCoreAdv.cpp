@@ -45,6 +45,8 @@ AmrCoreAdv::AmrCoreAdv (Geometry const& level_0_geom, int index_core,
     phi_new.resize(nlevs_max);
     phi_old.resize(nlevs_max);
 
+    level_tagger.resize(nlevs_max); 
+
     // 
     array_vec_mf_g[0].resize(nlevs_max);
     array_vec_mf_g[1].resize(nlevs_max);
@@ -54,6 +56,10 @@ AmrCoreAdv::AmrCoreAdv (Geometry const& level_0_geom, int index_core,
     //
     multi_block_boundaries.resize(nlevs_max);
     FillBoundary_ghost    .resize(nlevs_max);
+
+    //
+    multi_block_boundariesMarkers.resize(nlevs_max);
+    FillBoundaryMarkers_ghost    .resize(nlevs_max);
 
     //
     last_regrid_step.resize(nlevs_max, 0);
@@ -232,17 +238,19 @@ AmrCoreAdv::InitData ()
         }
 #endif
 
-        if (chk_int > 0) {
-            WriteCheckpointFile();
-        }
+        //if (chk_int > 0) {
+        //    WriteCheckpointFile();
+        //}
     }
     else {
         // restart from a checkpoint
         ReadCheckpointFile();
     }
-    if (plot_int > 0) {
-        WritePlotFile();
-    }
+    //if (plot_int > 0) {
+    //    WritePlotFile();
+    //}
+
+    is_first = false;
 }
 
 // Make a new level using provided BoxArray and DistributionMapping and
@@ -395,16 +403,17 @@ AmrCoreAdv::ErrorEst (int lev, TagBoxArray& tags, Real /*time*/, int /*ngrow*/)
 //    const int clearval = TagBox::CLEAR;
     const int tagval = TagBox::SET;
 
-    // create a copy of phi_new[lev] with allocated ghosts
-    MultiFab state(phi_new[lev].boxArray(), phi_new[lev].DistributionMap(), phi_new[lev].nComp(), array_vec_mf_g[0][lev].nGrowVect());
-    state.setVal(0);
-    state.ParallelCopy(phi_new[lev]);
-    state.FillBoundary();
 
-    // fill now the ghosts with communicating blocks 
-    FillBoundary_ghost[lev](state, array_vec_mf_g, lev); 
+    const auto& state      = phi_new     [lev]; 
+          auto& tagger_lev = level_tagger[lev];
 
-    //const MultiFab& state = phi_new[lev]; 
+    if (is_first)
+    {
+        tagger_lev.define(phi_new[lev].boxArray(), phi_new[lev].DistributionMap(), phi_new[lev].nComp(), 1); // just consider 1 ghost cell!
+        tagger_lev.setVal(0); // the tag 0 can be read as level 0
+        tagger_lev.FillBoundary();
+    }
+
 
     const auto problo = Geom(lev).ProbLoArray();
     const auto dx     = Geom(lev).CellSizeArray();
@@ -422,10 +431,15 @@ AmrCoreAdv::ErrorEst (int lev, TagBoxArray& tags, Real /*time*/, int /*ngrow*/)
         for (MFIter mfi(state,TilingIfNotGPU()); mfi.isValid(); ++mfi)
         {
             const Box bx = mfi.tilebox();
-            //const Box bx = mfi.growntilebox(state.nGrow());
-            const auto statefab = state.array(mfi);
+            const Box bx_g = mfi.growntilebox();
+            const auto statefab = state.const_array(mfi);
             const auto tagfab  = tags.array(mfi);
             Real phierror = phierr[lev];
+
+            //std::cout << bx_g << " " << bx << std::endl;
+
+            const auto taggerfab = tagger_lev.const_array(mfi);
+
 
             amrex::ParallelFor(bx,
             [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
@@ -435,15 +449,18 @@ AmrCoreAdv::ErrorEst (int lev, TagBoxArray& tags, Real /*time*/, int /*ngrow*/)
 
                 //std::cout << lev << " " << geom[0].Domain().bigEnd() << " " << bx.bigEnd() << " " << bx.smallEnd() << " " << valid_bx.bigEnd() << " " << valid_bx.smallEnd() << std::endl;
 
-                //Real x = problo[0] + (0.5+i)*dx[0];
-                //Real y = problo[1] + (0.5+j)*dx[1];
+                Real x = problo[0] + (0.5+i)*dx[0];
+                Real y = problo[1] + (0.5+j)*dx[1];
+
+                //if (x>.45&&x<.5) tagfab(i,j,k) = tagval;
+                //if (x>.45&&x<.55&&y>-.25&&y<.2) tagfab(i,j,k) = tagval;
 
                 //if (x>0.25&&x<0.75&&y>0) tagfab(i,j,k) = tagval;
                 //if (lev==0 && x>-.5) tagfab(i,j,k) = tagval; 
                 //if (lev==1 && x>0) tagfab(i,j,k) = tagval; 
-                //if (x>0.1) tagfab(i,j,k) = fine_tagval; 
+                //if (x>0.1) tagfab(i,j,k) = fine_tagval;  
 
-                state_error(i, j, k, tagfab, statefab, phierror, tagval, valid_start, valid_end);
+                state_error(i, j, k, tagfab, statefab, taggerfab, phierror, tagval, valid_start, valid_end, is_first);
             });
         }
     }
@@ -512,7 +529,8 @@ AmrCoreAdv::AverageDownTo (int crse_lev)
 void
 AmrCoreAdv::MoveMultiBlocks() {
     for (int lev=0; lev<=max_level; ++lev) {
-        FillBoundary_ghost[lev] = FillBoundaryFn{std::move(multi_block_boundaries[lev])};
+        FillBoundary_ghost       [lev] = FillBoundaryFn{std::move(multi_block_boundaries       [lev])};
+        FillBoundaryMarkers_ghost[lev] = FillBoundaryFn{std::move(multi_block_boundariesMarkers[lev])};
     }
 }
 
@@ -568,11 +586,30 @@ AmrCoreAdv::OnesidedMultiBlockBoundaryFn::FillBoundary_nowait(MultiFab& mf, std:
     return ParallelCopy_nowait(amrex::NonLocalBC::no_local_copy, mf, array_vec_mf_g_in[i_boundary][lev], *cmd, packing);
 }
 
+AMREX_NODISCARD CommHandler 
+AmrCoreAdv::OnesidedMultiBlockBoundaryFn::FillBoundary_nowait(MultiFab& mf, const std::array<const AmrCoreAdv*, 4>& neigh_cores, int lev) {
+    if (!cmd || cached_dest_bd_key != mf.getBDKey() || cached_src_bd_key != neigh_cores[i_boundary]->level_tagger[lev].getBDKey()) {
+        cmd = std::make_unique<MultiBlockCommMetaData>(mf, boundary_to_fill, neigh_cores[i_boundary]->level_tagger[lev], mf.nGrowVect(), dtos);
+        cached_dest_bd_key = mf.getBDKey();
+        cached_src_bd_key = neigh_cores[i_boundary]->level_tagger[lev].getBDKey();
+    }
+
+    return ParallelCopy_nowait(amrex::NonLocalBC::no_local_copy, mf, neigh_cores[i_boundary]->level_tagger[lev], *cmd, packing);
+}
+
 void 
 AmrCoreAdv::OnesidedMultiBlockBoundaryFn::FillBoundary_do_local_copy(MultiFab& mf, std::array<amrex::Vector<amrex::MultiFab>, 4>& array_vec_mf_g_in, int lev) const {
     AMREX_ASSERT(cmd && cached_dest_bd_key == mf.getBDKey() && cached_src_bd_key == array_vec_mf_g_in[i_boundary][lev].getBDKey());
     if (cmd->m_LocTags && !cmd->m_LocTags->empty()) {
         LocalCopy(packing, mf, array_vec_mf_g_in[i_boundary][lev], *cmd->m_LocTags);
+    }
+}
+
+void 
+AmrCoreAdv::OnesidedMultiBlockBoundaryFn::FillBoundary_do_local_copy(MultiFab& mf, const std::array<const AmrCoreAdv*, 4>& neigh_cores, int lev) const {
+    AMREX_ASSERT(cmd && cached_dest_bd_key == mf.getBDKey() && cached_src_bd_key == neigh_cores[i_boundary]->level_tagger[lev].getBDKey());
+    if (cmd->m_LocTags && !cmd->m_LocTags->empty()) {
+        LocalCopy(packing, mf, neigh_cores[i_boundary]->level_tagger[lev], *cmd->m_LocTags);
     }
 }
 
@@ -598,6 +635,24 @@ AmrCoreAdv::FillBoundaryFn::operator()(MultiFab& mf, std::array<amrex::Vector<am
         boundaries[i].FillBoundary_finish(mf, std::move(comms[i])); // NOLINT(performance-move-const-arg)
     }
 }
+
+void 
+AmrCoreAdv::FillBoundaryFn::operator()(MultiFab& mf, const std::array<const AmrCoreAdv*, 4>& neigh_cores, int lev) {
+
+    std::vector<CommHandler> comms;
+    const std::size_t n_boundaries = boundaries.size();
+    comms.reserve(n_boundaries);
+    for (auto& boundary : boundaries) {
+        comms.emplace_back(boundary.FillBoundary_nowait(mf, neigh_cores, lev));
+    }
+    for (auto& boundary : boundaries) {
+        boundary.FillBoundary_do_local_copy(mf, neigh_cores, lev);
+    }
+    for (std::size_t i = 0; i < n_boundaries; ++i) {
+        boundaries[i].FillBoundary_finish(mf, std::move(comms[i])); // NOLINT(performance-move-const-arg)
+    }
+}
+
 
 
 
@@ -682,8 +737,9 @@ AmrCoreAdv::FillPatch (int lev, Real time, MultiFab& mf, int icomp, int ncomp,
             }
         }
     }
+    //std::cout << mf.nGrow() << std::endl;
     // fill now the ghost cells of mf
-    if (mf.nGrow()==array_vec_mf_g[0][lev].nGrow())
+    if (mf.nGrow()==array_vec_mf_g[0][lev].nGrow()) // this check is mandatory because also the regrid function calls this function
     {
         FillBoundary_ghost[lev](mf, array_vec_mf_g, lev);
     }
@@ -726,6 +782,7 @@ AmrCoreAdv::FillCoarsePatch (int lev, Real time, MultiFab& mf, int icomp, int nc
                                      cphysbc, 0, fphysbc, 0, refRatio(lev-1),
                                      mapper, bcs, 0);
     }
+    //exit(1);
     // fill now the ghost cells of mf
     if (mf.nGrow()==array_vec_mf_g[0][lev].nGrow())
     {
@@ -773,7 +830,95 @@ AmrCoreAdv::perform_regrid(Real time)
             }
 #endif
         }
+    }
+}
+
+void
+AmrCoreAdv::reset_level_tagger()
+{
+    for (int lev=0; lev<=finest_level; lev++) 
+    {
+        // reset here first 
+        level_tagger[lev].setVal(0); // the tag 0 can be read as level 0
     } 
+}
+
+void
+AmrCoreAdv::check_finer()
+{
+    // the finest level is alredy initialized to 0 brcause there isn't anything behind it!
+    level_tagger[finest_level].define(phi_new[finest_level].boxArray(), phi_new[finest_level].DistributionMap(), phi_new[finest_level].nComp(), 1); // just consider 1 ghost cell!
+    level_tagger[finest_level].setVal(0); // the tag 0 can be read as level 0
+    level_tagger[finest_level].FillBoundary();
+
+    IntVect ones_vect = IntVect(AMREX_D_DECL(1, 1, 1));
+
+    for (int lev=0; lev<finest_level; lev++) 
+    {
+              auto& current_tag_lev = level_tagger[lev];
+        const auto& current_sol_lev = phi_new     [lev];
+
+        // reset here first 
+        current_tag_lev.define(current_sol_lev.boxArray(), current_sol_lev.DistributionMap(), current_sol_lev.nComp(), 1); // just consider 1 ghost cell!
+        current_tag_lev.setVal(0); // the tag 0 can be read as level 0
+        current_tag_lev.FillBoundary();
+
+        //std::cout << "aaaaaaaaa" << std::endl;
+
+
+        //ref_ratio = ref_ratio*refRatio(lev-1);  // Refinement ratio to next level
+        for (MFIter mfi(current_tag_lev, TilingIfNotGPU()); mfi.isValid(); ++mfi)
+        {
+            const Box& bx = mfi.validbox();
+            const auto& fab = current_tag_lev.array(mfi);  // Access MultiFab data
+
+            const BoxArray& finer_grids = boxArray(lev+1);
+            
+            ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+            {
+                // Compute the equivalent index in the finer level
+                //IntVect fine_idx = IntVect(AMREX_D_DECL(i, j, k))*ref_ratio;
+
+                const auto current_index = IntVect(AMREX_D_DECL(i, j, k));
+
+                auto fine_idx = current_index*refRatio(lev); // we take the left index of the tree structure at fine level
+                //auto fine_idx_hh = fine_idx_ll + ones_vect;
+
+                //Box fine_box(fine_idx_ll, fine_idx_hh);
+
+                //std::cout << fine_idx << " " << refRatio(lev-1) << " " << i << " " << j << " " << ref_ratio << std::endl;
+
+                bool covered_by_finer = false;
+                for (int nb = 0; nb < finer_grids.size(); ++nb)
+                {
+                    if (finer_grids[nb].contains(fine_idx))
+                    {
+                        covered_by_finer = true;
+                        break;
+                    }
+                }
+
+                if (covered_by_finer)
+                {
+                    fab(current_index) = 1;  // Mark cells that have a finer level behind
+
+                    //if (index_core==1 && i==63) 
+                        //std::cout << i << " " << j << " " << index_core << " " << std::endl;
+                }
+            });
+            
+        }
+    }
+
+}
+
+void
+AmrCoreAdv::check_finer_communication()
+{
+    for (int lev=0; lev<=finest_level; lev++)
+    {
+        FillBoundaryMarkers_ghost[lev](level_tagger[lev], other_core, lev);
+    }
 }
 
 
