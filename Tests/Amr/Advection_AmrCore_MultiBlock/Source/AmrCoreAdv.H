@@ -104,9 +104,6 @@ public:
     // a wrapper for EstTimeStep
     void ComputeDt ();
 
-    amrex::Vector<amrex::Real> t_new;
-    amrex::Vector<amrex::Real> dt;
-
     // maximum number of steps and stop time
     amrex::Real stop_time = std::numeric_limits<amrex::Real>::max();
     int max_step = std::numeric_limits<int>::max();
@@ -122,23 +119,7 @@ public:
 
     void check_finer();
 
-    amrex::Vector<amrex::MultiFab> phi_new;
-    amrex::Vector<amrex::MultiFab> phi_old;
-
-    amrex::Vector<amrex::MultiFab> level_tagger;
-
     std::array<amrex::Vector<amrex::MultiFab>, 4> array_vec_mf_g;
-
-    // plotfile prefix and frequency
-    std::string plot_file {"plt"};
-    int plot_int = -1;
-
-    // checkpoint prefix and frequency
-    std::string chk_file {"chk"};
-    int chk_int = -1;
-
-    // Getter function for `finest_level`
-    int getFinestLevel() const;
 
     std::array<const AmrCoreAdv*, 4> other_core;  // Pointer to another AmrCoreAdv
 
@@ -185,9 +166,36 @@ public:
     // if >= 0 we restart from a checkpoint
     std::string restart_chkfile;
 
-    bool is_first = true;
+    // Getter functions 
+    const int& getFinestLevel() const;
+    const int& getNsubsteps(int) const;
+    const amrex::Real& getLevel0Dt() const;
+    const amrex::Real& getTnewLev(int) const;
+    const int& getChk_int() const;
+    const int& getPlot_int() const;
+
+    // Setter functions
+    void setDtWithSubcycling();
+    void setDtNoSubcycling();
+    void setLevel0Dt(amrex::Real);
+    void setTnewAllLev(amrex::Real);
+
+    //
+    amrex::Real computeSumLevel0();
 
 private:
+
+    // plotfile prefix and frequency
+    std::string plot_file {"plt"};
+    int plot_int = -1;
+
+    // checkpoint prefix and frequency
+    std::string chk_file {"chk"};
+    int chk_int = -1;
+
+    bool is_first = true;
+
+    amrex::Vector<amrex::MultiFab> level_tagger;
 
     static constexpr int NUM_COMPONENTS = 1; // number of conservative variables 
 
@@ -199,7 +207,7 @@ private:
     // private member functions
 
     // read in some parameters from inputs file
-    void ReadParameters();
+    void ReadParameters(); 
 
     // set covered coarse cells to be the average of overlying fine cells
     void AverageDown ();
@@ -241,14 +249,14 @@ private:
     amrex::Vector<int> nsubsteps;  // how many substeps on each level?
 
     // keep track of old time, new time, and time step at each level
-    //amrex::Vector<amrex::Real> t_new;
+    amrex::Vector<amrex::Real> t_new;
     amrex::Vector<amrex::Real> t_old;
-    //amrex::Vector<amrex::Real> dt;
+    amrex::Vector<amrex::Real> dt;
 
     // array of multifabs to store the solution at each level of refinement
     // after advancing a level we use "swap".
-    //amrex::Vector<amrex::MultiFab> phi_new;
-    //amrex::Vector<amrex::MultiFab> phi_old;
+    amrex::Vector<amrex::MultiFab> phi_new;
+    amrex::Vector<amrex::MultiFab> phi_old;
 
     // this is essentially a 2*DIM integer array storing the physical boundary
     // condition types at the lo/hi walls in each direction
@@ -264,9 +272,6 @@ private:
 
     // This is for fillpatch during timestepping, but not for regridding.
     amrex::Vector<std::unique_ptr<amrex::FillPatcher<amrex::MultiFab>>> fillpatcher;
-
-    // This is for fillpatch during timestepping, but not for regridding.
-    amrex::Vector<std::unique_ptr<amrex::FillPatcher<amrex::MultiFab>>> fillpatcher_ghost_boundary;
 
     // Velocity on all faces at all levels
     amrex::Vector< amrex::Array<amrex::MultiFab, AMREX_SPACEDIM> > facevel;

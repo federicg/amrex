@@ -969,7 +969,7 @@ AmrCoreAdv::timeStepWithSubcycling (int lev, Real time, int iteration)
     }
 
     if (Verbose()) {
-        amrex::Print() << "[Level " << lev << " step " << istep[lev]+1 << "] ";
+        amrex::Print() << "[Core " << index_core << " level " << lev << " step " << istep[lev]+1 << "] ";
         amrex::Print() << "ADVANCE with time = " << t_new[lev]
                        << " dt = " << dt[lev] << '\n';
     }
@@ -995,7 +995,7 @@ AmrCoreAdv::timeStepWithSubcycling (int lev, Real time, int iteration)
 
     if (Verbose())
     {
-        amrex::Print() << "[Level " << lev << " step " << istep[lev] << "] ";
+        amrex::Print() << "[Core " << index_core << " level " << lev << " step " << istep[lev] << "] ";
         amrex::Print() << "Advanced " << CountCells(lev) << " cells" << '\n';
     }
 
@@ -1083,10 +1083,60 @@ AmrCoreAdv::timeStepNoSubcycling (Real time, int iteration)
     }
 }
 
-// Getter function for `finest_level`
-int 
+// Getter functions
+const int&
 AmrCoreAdv::getFinestLevel() const {
     return finest_level;
+}
+const int& 
+AmrCoreAdv::getNsubsteps(int lev) const {
+    return nsubsteps[lev];
+}
+const Real&
+AmrCoreAdv::getLevel0Dt() const {
+    return dt[0];
+}
+const Real& 
+AmrCoreAdv::getTnewLev(int lev) const {
+    return t_new[lev];
+}
+const int& 
+AmrCoreAdv::getChk_int() const {
+    return chk_int;
+}
+const int& 
+AmrCoreAdv::getPlot_int() const {
+    return plot_int;
+}
+
+// Setter functions 
+void 
+AmrCoreAdv::setDtWithSubcycling() {
+    for (int lev = 1; lev <= finest_level; ++lev) {
+        dt[lev] = dt[lev-1]/nsubsteps[lev];
+    }
+}
+void 
+AmrCoreAdv::setDtNoSubcycling() {
+    for (int lev = 1; lev <= finest_level; ++lev) {
+        dt[lev] = dt[lev-1];
+    }
+}
+void
+AmrCoreAdv::setLevel0Dt(Real min_dt) {
+    dt[0] = min_dt;
+}
+void
+AmrCoreAdv::setTnewAllLev (Real cur_time) {
+    for (int lev = 0; lev < finest_level; ++lev) {
+        t_new[lev] = cur_time;
+    }
+}
+
+//
+Real
+AmrCoreAdv::computeSumLevel0() {
+    return phi_new[0].sum();
 }
 
 // a wrapper for EstTimeStep
@@ -1119,10 +1169,7 @@ AmrCoreAdv::ComputeDt ()
     }
 
     dt[0] = dt_0;
-
-    for (int lev = 1; lev <= finest_level; ++lev) {
-        dt[lev] = dt[lev-1] / nsubsteps[lev];
-    }
+    setDtWithSubcycling();
 }
 
 // compute dt from CFL considerations
@@ -1159,7 +1206,7 @@ AmrCoreAdv::PlotFileName (int lev) const
 {
     auto plt_out = core_prefix + std::to_string(index_core) + "/" + plot_file;
     return amrex::Concatenate(plt_out, lev, 5);
-}
+} 
 
 // put together an array of multifabs for writing
 Vector<const MultiFab*>

@@ -148,17 +148,17 @@ int main(int argc, char* argv[])
             amr_core_adv_2.check_finer_communication();
 
             // perform the regridding on each core
-            amr_core_adv_1.perform_regrid(amr_core_adv_1.t_new[0]);
-            amr_core_adv_2.perform_regrid(amr_core_adv_1.t_new[0]);
+            amr_core_adv_1.perform_regrid(amr_core_adv_1.getTnewLev(0));
+            amr_core_adv_2.perform_regrid(amr_core_adv_2.getTnewLev(0));
         }
 
         if (amr_core_adv_1.restart_chkfile.empty()) {
-            if (amr_core_adv_1.chk_int > 0) {
+            if (amr_core_adv_1.getChk_int() > 0) {
                 amr_core_adv_1.WriteCheckpointFile();
                 amr_core_adv_2.WriteCheckpointFile();
             }
         }
-        if (amr_core_adv_1.plot_int > 0) {
+        if (amr_core_adv_1.getPlot_int() > 0) {
             amr_core_adv_1.WritePlotFile();
             amr_core_adv_2.WritePlotFile();
         }
@@ -168,7 +168,7 @@ int main(int argc, char* argv[])
         amr_core_adv_2.create_ghost_multifabs(num_ghost); // set the number of ghosts
 
         // advance solution to final time
-        Real cur_time = amr_core_adv_1.t_new[0];
+        Real cur_time = amr_core_adv_1.getTnewLev(0);
         int last_plot_file_step = 0;
 
         for (int step = amr_core_adv_1.istep[0]; step < amr_core_adv_1.max_step && cur_time < amr_core_adv_1.stop_time; ++step)
@@ -178,31 +178,35 @@ int main(int argc, char* argv[])
             amr_core_adv_1.ComputeDt(); // be careful here about the sync of dt, for velocity equal to a number everywhere there are no issues right now
             amr_core_adv_2.ComputeDt();
 
-            if (!amr_core_adv_1.do_subcycle) { // sync the time steps if not using the subcycling
-                const auto min_dt = std::min(amr_core_adv_1.dt[0], amr_core_adv_2.dt[0]);
-
-                for (int lev = 0; lev <= amr_core_adv_1.getFinestLevel(); ++lev) {
-                    amr_core_adv_1.dt[lev] = min_dt;
-                }
-
-                for (int lev = 0; lev <= amr_core_adv_2.getFinestLevel(); ++lev) {
-                    amr_core_adv_2.dt[lev] = min_dt;
-                }
-            }
-
-            if (amr_core_adv_1.dt[0] != amr_core_adv_2.dt[0]) {
-                throw std::runtime_error("You have to fix the syncronization between times in various cores");
-            }
+            const auto min_dt = std::min(amr_core_adv_1.getLevel0Dt(), amr_core_adv_2.getLevel0Dt()); // level 0 dt
+            amr_core_adv_1.setLevel0Dt(min_dt);
+            amr_core_adv_2.setLevel0Dt(min_dt);
 
 
             int lev = 0;
             int iteration = 1;
             if (amr_core_adv_1.do_subcycle) {
 
+                // sync the time step of all cores for the given level
+                amr_core_adv_1.setDtWithSubcycling();
+                amr_core_adv_2.setDtWithSubcycling();
+
+                // reset the tagger
+                //amr_core_adv_1.reset_level_tagger();
+                //amr_core_adv_2.reset_level_tagger();
+
+                // perform the regridding on each core first
+                //amr_core_adv_1.perform_regridWithSubcycling(lev, cur_time);
+                //amr_core_adv_2.perform_regridWithSubcycling(lev, cur_time);
+
                 // apply the numerical scheme
                 amr_core_adv_1.timeStepWithSubcycling(lev, cur_time, iteration);
                 amr_core_adv_2.timeStepWithSubcycling(lev, cur_time, iteration);
             } else {
+
+                // sync all the levels of the cores at the same time step, 
+                amr_core_adv_1.setDtNoSubcycling();
+                amr_core_adv_2.setDtNoSubcycling();
 
                 // reset the tagger
                 amr_core_adv_1.reset_level_tagger();
@@ -212,12 +216,11 @@ int main(int argc, char* argv[])
                 amr_core_adv_1.perform_regrid(cur_time);
                 amr_core_adv_2.perform_regrid(cur_time);
 
-                //std::cout << (amr_core_adv_1.phi_new[0].sum() + amr_core_adv_2.phi_new[0].sum()) << " :aaaaaaaaaaaaaaa" << std::endl;
+                //std::cout << (amr_core_adv_1.computeSumLevel0() + amr_core_adv_2.computeSumLevel0()) << " :aaaaaaaaaaaaaaa" << std::endl;
 
                 max_finest_cores = std::max(amr_core_adv_1.getFinestLevel(), amr_core_adv_2.getFinestLevel());
 
-                //if (cur_time<.5)
-                for (int ii_re=0; ii_re<max_finest_cores; ii_re++)
+                for (int ii=0; ii<max_finest_cores; ii++)
                 { 
                     // check here the presence of cells to be refined at the interface between various cores
                     amr_core_adv_1.check_finer();
@@ -230,7 +233,7 @@ int main(int argc, char* argv[])
                     // perform the regridding on each core
                     amr_core_adv_1.perform_regrid(cur_time);
                     amr_core_adv_2.perform_regrid(cur_time);
-                    //std::cout << (amr_core_adv_1.phi_new[0].sum() + amr_core_adv_2.phi_new[0].sum()) << " :aaaaaaaaaaaaaaabbbbbbbbb" << std::endl;
+                    //std::cout << (amr_core_adv_1.computeSumLevel0() + amr_core_adv_2.computeSumLevel0()) << " :aaaaaaaaaaaaaaabbbbbbbbb" << std::endl;
                 }
 
                 // call function to create new multifab from the stored pointers,
@@ -241,27 +244,21 @@ int main(int argc, char* argv[])
                 amr_core_adv_1.timeStepNoSubcycling(cur_time, iteration);
                 amr_core_adv_2.timeStepNoSubcycling(cur_time, iteration);
 
-                //std::cout << (amr_core_adv_1.phi_new[0].sum() + amr_core_adv_2.phi_new[0].sum()) << " :aaaaaaaaaaaaaaa" << std::endl;
+                //std::cout << (amr_core_adv_1.computeSumLevel0() + amr_core_adv_2.computeSumLevel0()) << " :aaaaaaaaaaaaaaa" << std::endl;
             }
-
-            cur_time += amr_core_adv_1.dt[0];
-
+            cur_time += amr_core_adv_1.getLevel0Dt();
+ 
             // sum phi to check conservation
-            Real sum_phi = amr_core_adv_1.phi_new[0].sum() + amr_core_adv_2.phi_new[0].sum();
+            Real sum_phi = amr_core_adv_1.computeSumLevel0() + amr_core_adv_2.computeSumLevel0();
 
             amrex::Print() << "Coarse STEP " << step+1 << " ends." << " TIME = " << cur_time
-                        << " DT core 1 = " << amr_core_adv_1.dt[0] << " DT core 2 = " << amr_core_adv_2.dt[0] << " Sum(Phi) = " << sum_phi << '\n';
+                        << " DT core 1 = " << amr_core_adv_1.getLevel0Dt() << " DT core 2 = " << amr_core_adv_2.getLevel0Dt() << " Sum(Phi) = " << sum_phi << '\n';
 
-            // sync up time, core 1
-            for (lev = 0; lev < amr_core_adv_1.getFinestLevel(); ++lev) {
-                amr_core_adv_1.t_new[lev] = cur_time;
-            }
-            // sync up time, core 2
-            for (lev = 0; lev < amr_core_adv_2.getFinestLevel(); ++lev) {
-                amr_core_adv_2.t_new[lev] = cur_time;
-            }
+            // sync up time for  various cores 
+            amr_core_adv_1.setTnewAllLev(cur_time);
+            amr_core_adv_2.setTnewAllLev(cur_time);
 
-            //if (amr_core_adv_1.plot_int > 0 && (step+1) % amr_core_adv_1.plot_int == 0) 
+            //if (amr_core_adv_1.getPlot_int() > 0 && (step+1) % amr_core_adv_1.getPlot_int() == 0) 
             {
                 last_plot_file_step = step+1;
                 amr_core_adv_1.WritePlotFile();
@@ -272,7 +269,7 @@ int main(int argc, char* argv[])
             //exit(1);
             
 
-            if (amr_core_adv_1.chk_int > 0 && (step+1) % amr_core_adv_1.chk_int == 0) {
+            if (amr_core_adv_1.getChk_int() > 0 && (step+1) % amr_core_adv_1.getChk_int() == 0) {
                 amr_core_adv_1.WriteCheckpointFile();
                 amr_core_adv_2.WriteCheckpointFile();
             }
@@ -285,10 +282,10 @@ int main(int argc, char* argv[])
             }
 #endif
 
-            if (cur_time >= amr_core_adv_1.stop_time - 1.e-6*amr_core_adv_1.dt[0]) { break; }
+            if (cur_time >= amr_core_adv_1.stop_time - 1.e-6*amr_core_adv_1.getLevel0Dt()) { break; }
         }
 
-        if (amr_core_adv_1.plot_int > 0 && amr_core_adv_1.istep[0] > last_plot_file_step) {
+        if (amr_core_adv_1.getPlot_int() > 0 && amr_core_adv_1.istep[0] > last_plot_file_step) {
             amr_core_adv_1.WritePlotFile();
             amr_core_adv_2.WritePlotFile();
         }
