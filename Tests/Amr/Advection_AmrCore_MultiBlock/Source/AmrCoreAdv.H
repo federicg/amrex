@@ -108,6 +108,9 @@ public:
     amrex::Real stop_time = std::numeric_limits<amrex::Real>::max();
     int max_step = std::numeric_limits<int>::max();
 
+    // original substepping
+    void timeStepWithSubcycling_original (int lev, amrex::Real time, int iteration);
+
     // Advance a level by dt - includes a recursive call for finer levels
     void timeStepWithSubcycling (int lev, amrex::Real time, int iteration);
 
@@ -165,6 +168,8 @@ public:
 
     // if >= 0 we restart from a checkpoint
     std::string restart_chkfile;
+
+    void particles_tracer(int, int);
 
     // Getter functions 
     const int& getFinestLevel() const;

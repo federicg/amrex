@@ -88,7 +88,7 @@ int main(int argc, char* argv[])
         Geometry geom2{domain, real_box2, CoordSys::cartesian, is_periodic2};
 
         AmrInfo amr_info{}; 
-        amr_info.max_level = 1; // maximum level number allowed -- number of levels = max_level + 1
+        amr_info.max_level = 2; // maximum level number allowed -- number of levels = max_level + 1
         amr_info.blocking_factor.assign(amr_info.max_level+1, IntVect{AMREX_D_DECL(2, 2, 2)}); // along, x, y, z
         //amr_info.max_grid_size  .assign(amr_info.max_level+1, IntVect{AMREX_D_DECL(4, 4, 4)}); // along, x, y, z
         amr_info.ref_ratio      .assign(amr_info.max_level+1, IntVect{AMREX_D_DECL(2, 2, 1)}); // controlla qui se non raffina come pensi
@@ -96,8 +96,8 @@ int main(int argc, char* argv[])
         
 
         amr_info.refine_grid_layout = 1;
-        amr_info.n_error_buf.resize(1);
-        amr_info.n_error_buf[0] = IntVect(AMREX_D_DECL(0,0,0));
+        //amr_info.n_error_buf.resize(1);
+        amr_info.n_error_buf.assign(amr_info.max_level+1, IntVect(AMREX_D_DECL(0,0,0)));
 
 
         // constructor - reads in parameters from inputs file
@@ -182,7 +182,6 @@ int main(int argc, char* argv[])
             amr_core_adv_1.setLevel0Dt(min_dt);
             amr_core_adv_2.setLevel0Dt(min_dt);
 
-
             int lev = 0;
             int iteration = 1;
             if (amr_core_adv_1.do_subcycle) {
@@ -191,17 +190,61 @@ int main(int argc, char* argv[])
                 amr_core_adv_1.setDtWithSubcycling();
                 amr_core_adv_2.setDtWithSubcycling();
 
-                // reset the tagger
-                //amr_core_adv_1.reset_level_tagger();
-                //amr_core_adv_2.reset_level_tagger();
+		amr_core_adv_1.timeStepWithSubcycling_original(lev, cur_time, iteration);
+		amr_core_adv_2.timeStepWithSubcycling_original(lev, cur_time, iteration);
 
-                // perform the regridding on each core first
-                //amr_core_adv_1.perform_regridWithSubcycling(lev, cur_time);
-                //amr_core_adv_2.perform_regridWithSubcycling(lev, cur_time);
+		/*
+		max_finest_cores = std::max(amr_core_adv_1.getFinestLevel(), amr_core_adv_2.getFinestLevel());
+                for (int lev=0; lev<=max_finest_cores; lev++)
+                {
+                    // reset the tagger
+                    amr_core_adv_1.reset_level_tagger(); // maybe here could start from lev, but check it first!
+                    amr_core_adv_2.reset_level_tagger();
 
-                // apply the numerical scheme
-                amr_core_adv_1.timeStepWithSubcycling(lev, cur_time, iteration);
-                amr_core_adv_2.timeStepWithSubcycling(lev, cur_time, iteration);
+                    // perform the regridding on each core first, this operation could modify the max_finest_cores and so the loop upper bound!
+                    amr_core_adv_1.perform_regridWithSubcycling(lev, cur_time);
+                    amr_core_adv_2.perform_regridWithSubcycling(lev, cur_time);
+
+                    max_finest_cores = std::max(amr_core_adv_1.getFinestLevel(), amr_core_adv_2.getFinestLevel());
+                    for (int ii=lev; ii<max_finest_cores; ii++) // this loop should not modify the max_finest_cores
+                    {
+                        // check here the presence of cells to be refined at the interface between various cores
+                        amr_core_adv_1.check_finer();
+                        amr_core_adv_2.check_finer();
+
+                        // perform now the communciation phase
+                        amr_core_adv_1.check_finer_communication();
+                        amr_core_adv_2.check_finer_communication();
+
+                        // perform the regridding on each core
+                        amr_core_adv_1.perform_regridWithSubcycling(lev, cur_time);
+                        amr_core_adv_2.perform_regridWithSubcycling(lev, cur_time);
+                    }
+
+                    // apply the numerical scheme
+                    for (int ii = 1; ii <= amr_core_adv_1.getNsubsteps(lev); ++ii) // the refratio is the same for all the cores
+                    {
+                        if (lev <= amr_core_adv_1.getFinestLevel()) amr_core_adv_1.timeStepWithSubcycling(lev, cur_time+(ii-1)*dt[lev], ii);
+                        if (lev <= amr_core_adv_2.getFinestLevel()) amr_core_adv_2.timeStepWithSubcycling(lev, cur_time+(ii-1)*dt[lev], ii);
+                    }
+                }
+
+                amr_core_adv_1.particles_tracer(amr_core_adv_1.getFinestLevel(), iteration);
+
+                // questa parte viene eseguita dopo la ricorsione, quindi esce dal ciclo for
+                // questa parte mettila come memeber function di amrcoreadv
+                // qui metter dentro un ciclo for su lev al contrario
+                if (lev < amr_core_adv_1.getFinestLevel())
+                {
+                    if (do_reflux)
+                    {
+                        // update lev based on coarse-fine flux mismatch
+                        flux_reg[lev+1]->Reflux(phi_new[lev], 1.0, 0, 0, phi_new[lev].nComp(), geom[lev]);
+                    }
+                    AverageDownTo(lev); // average lev+1 down to lev
+                    fillpatcher[lev+1].reset(); // Because the data on lev have changed.
+                }*/
+
             } else {
 
                 // sync all the levels of the cores at the same time step, 
@@ -216,10 +259,7 @@ int main(int argc, char* argv[])
                 amr_core_adv_1.perform_regrid(cur_time);
                 amr_core_adv_2.perform_regrid(cur_time);
 
-                //std::cout << (amr_core_adv_1.computeSumLevel0() + amr_core_adv_2.computeSumLevel0()) << " :aaaaaaaaaaaaaaa" << std::endl;
-
                 max_finest_cores = std::max(amr_core_adv_1.getFinestLevel(), amr_core_adv_2.getFinestLevel());
-
                 for (int ii=0; ii<max_finest_cores; ii++)
                 { 
                     // check here the presence of cells to be refined at the interface between various cores
@@ -233,7 +273,6 @@ int main(int argc, char* argv[])
                     // perform the regridding on each core
                     amr_core_adv_1.perform_regrid(cur_time);
                     amr_core_adv_2.perform_regrid(cur_time);
-                    //std::cout << (amr_core_adv_1.computeSumLevel0() + amr_core_adv_2.computeSumLevel0()) << " :aaaaaaaaaaaaaaabbbbbbbbb" << std::endl;
                 }
 
                 // call function to create new multifab from the stored pointers,
@@ -243,8 +282,6 @@ int main(int argc, char* argv[])
                 // apply the numerical scheme
                 amr_core_adv_1.timeStepNoSubcycling(cur_time, iteration);
                 amr_core_adv_2.timeStepNoSubcycling(cur_time, iteration);
-
-                //std::cout << (amr_core_adv_1.computeSumLevel0() + amr_core_adv_2.computeSumLevel0()) << " :aaaaaaaaaaaaaaa" << std::endl;
             }
             cur_time += amr_core_adv_1.getLevel0Dt();
  
@@ -258,17 +295,13 @@ int main(int argc, char* argv[])
             amr_core_adv_1.setTnewAllLev(cur_time);
             amr_core_adv_2.setTnewAllLev(cur_time);
 
-            //if (amr_core_adv_1.getPlot_int() > 0 && (step+1) % amr_core_adv_1.getPlot_int() == 0) 
+            if (amr_core_adv_1.getPlot_int() > 0 && (step+1) % amr_core_adv_1.getPlot_int() == 0) 
             {
                 last_plot_file_step = step+1;
                 amr_core_adv_1.WritePlotFile();
                 amr_core_adv_2.WritePlotFile();
             }
-
-            //std::cout << " hereee " << std::endl;
-            //exit(1);
             
-
             if (amr_core_adv_1.getChk_int() > 0 && (step+1) % amr_core_adv_1.getChk_int() == 0) {
                 amr_core_adv_1.WriteCheckpointFile();
                 amr_core_adv_2.WriteCheckpointFile();

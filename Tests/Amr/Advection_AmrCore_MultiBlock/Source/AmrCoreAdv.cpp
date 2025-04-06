@@ -839,7 +839,9 @@ AmrCoreAdv::reset_level_tagger()
     for (int lev=0; lev<=finest_level; lev++) 
     {
         // reset here first 
-        level_tagger[lev].setVal(0); // the tag 0 can be read as level 0
+	level_tagger[lev].define(phi_new[lev].boxArray(), phi_new[lev].DistributionMap(), phi_new[lev].nComp(), 1);
+        level_tagger[lev].setVal(0); // the tag 0 can be read as level 
+	level_tagger[lev].FillBoundary();
     } 
 }
 
@@ -863,8 +865,6 @@ AmrCoreAdv::check_finer()
         current_tag_lev.setVal(0); // the tag 0 can be read as level 0
         current_tag_lev.FillBoundary();
 
-        //std::cout << "aaaaaaaaa" << std::endl;
-
 
         //ref_ratio = ref_ratio*refRatio(lev-1);  // Refinement ratio to next level
         for (MFIter mfi(current_tag_lev, TilingIfNotGPU()); mfi.isValid(); ++mfi)
@@ -882,9 +882,6 @@ AmrCoreAdv::check_finer()
                 const auto current_index = IntVect(AMREX_D_DECL(i, j, k));
 
                 auto fine_idx = current_index*refRatio(lev); // we take the left index of the tree structure at fine level
-                //auto fine_idx_hh = fine_idx_ll + ones_vect;
-
-                //Box fine_box(fine_idx_ll, fine_idx_hh);
 
                 //std::cout << fine_idx << " " << refRatio(lev-1) << " " << i << " " << j << " " << ref_ratio << std::endl;
 
@@ -925,8 +922,124 @@ AmrCoreAdv::check_finer_communication()
 // Advance a level by dt
 // (includes a recursive call for finer levels)
 void
+AmrCoreAdv::timeStepWithSubcycling_original (int lev, Real time, int iteration)
+{
+    
+    //std::cout << index_core << " " << regrid_int << std::endl;
+    if (regrid_int > 0)  // We may need to regrid
+    {
+
+        // help keep track of whether a level was already regridded
+        // from a coarser level call to regrid
+        //static amrex::Vector<int> last_regrid_step(max_level+1, 0);
+
+        // regrid changes level "lev+1" so we don't regrid on max_level
+        // also make sure we don't regrid fine levels again if
+        // it was taken care of during a coarser regrid
+
+        if (lev < max_level && istep[lev] > last_regrid_step[lev])
+        {
+            if (istep[lev] % regrid_int == 0)
+            { 
+                // regrid could add newly refine levels (if finest_level < max_level)
+                // so we save the previous finest level index
+                int old_finest = finest_level;
+                regrid(lev, time); // the mesh adaption is carried on just here
+
+                // mark that we have regridded this level already
+                for (int k = lev; k <= finest_level; ++k) {
+                    last_regrid_step[k] = istep[k];
+                }
+
+                // if there are newly created levels, set the time step
+                for (int k = old_finest+1; k <= finest_level; ++k) {
+                    dt[k] = dt[k-1] / MaxRefRatio(k-1);
+                }
+
+#ifdef AMREX_PARTICLES
+                if (do_tracers) {
+                    TracerPC->Redistribute(lev);
+                }
+#endif
+            }
+        }
+    }
+/*
+    if (Verbose()) {
+        amrex::Print() << "[Core " << index_core << " level " << lev << " step " << istep[lev]+1 << "] ";
+        amrex::Print() << "ADVANCE with time = " << t_new[lev]
+                       << " dt = " << dt[lev] << '\n';
+    }
+*/
+    // Advance a single level for a single time step, and update flux registers
+
+    t_old[lev] = t_new[lev];
+    t_new[lev] += dt[lev];
+
+    Real t_nph = t_old[lev] + 0.5*dt[lev];
+
+    // here is the core part of the numerical scheme
+    DefineVelocityAtLevel(lev, t_nph);
+    AdvancePhiAtLevel(lev, time, dt[lev], iteration, nsubsteps[lev]);
+
+#ifdef AMREX_PARTICLES
+    if (do_tracers) {
+        TracerPC->AdvectWithUmac(facevel[lev].data(),lev,dt[lev]);
+    }
+#endif
+
+    ++istep[lev];
+/*
+    if (Verbose()) 
+    {//amrex::Print() << index_core << " " << lev << " " << istep[lev] << '\n';
+        amrex::Print() << "[Core " << index_core << " level " << lev << " step " << istep[lev] << "] ";
+        amrex::Print() << "Advanced " << CountCells(lev) << " cells" << '\n';
+    }*/
+//exit(1);
+    if (lev < finest_level)
+    {
+        // recursive call for next-finer level
+        for (int i = 1; i <= nsubsteps[lev+1]; ++i)
+        {
+            timeStepWithSubcycling(lev+1, time+(i-1)*dt[lev+1], i);
+        }
+//std::cout << index_core << " " << lev << std::endl;
+        if (do_reflux)
+        {
+            // update lev based on coarse-fine flux mismatch
+            flux_reg[lev+1]->Reflux(phi_new[lev], 1.0, 0, 0, phi_new[lev].nComp(), geom[lev]);
+        } 
+
+        AverageDownTo(lev); // average lev+1 down to lev
+
+        fillpatcher[lev+1].reset(); // Because the data on lev have changed.
+    }
+//std::cout << index_core << " " << lev << std::endl;
+
+#ifdef AMREX_PARTICLES
+    if (do_tracers) {
+        int redistribute_ngrow = 0;
+        if ((iteration < nsubsteps[lev]) || (lev == 0)){
+            if (lev == 0){
+                redistribute_ngrow = 0;
+            } else {
+                redistribute_ngrow = iteration;
+            }
+            TracerPC->Redistribute(lev, TracerPC->finestLevel(), redistribute_ngrow);
+        }
+    }
+#endif
+
+}
+
+
+
+// Advance a level by dt
+// (includes a recursive call for finer levels)
+void
 AmrCoreAdv::timeStepWithSubcycling (int lev, Real time, int iteration)
 {
+/*
     //std::cout << index_core << " " << regrid_int << std::endl;
     if (regrid_int > 0)  // We may need to regrid
     {
@@ -967,7 +1080,7 @@ AmrCoreAdv::timeStepWithSubcycling (int lev, Real time, int iteration)
             }
         }
     }
-
+*/
     if (Verbose()) {
         amrex::Print() << "[Core " << index_core << " level " << lev << " step " << istep[lev]+1 << "] ";
         amrex::Print() << "ADVANCE with time = " << t_new[lev]
@@ -998,7 +1111,7 @@ AmrCoreAdv::timeStepWithSubcycling (int lev, Real time, int iteration)
         amrex::Print() << "[Core " << index_core << " level " << lev << " step " << istep[lev] << "] ";
         amrex::Print() << "Advanced " << CountCells(lev) << " cells" << '\n';
     }
-
+/*
     if (lev < finest_level)
     {
         // recursive call for next-finer level
@@ -1032,7 +1145,25 @@ AmrCoreAdv::timeStepWithSubcycling (int lev, Real time, int iteration)
         }
     }
 #endif
+*/
+}
 
+void
+AmrCoreAdv::particles_tracer(int lev, int iteration)
+{
+#ifdef AMREX_PARTICLES
+    if (do_tracers) {
+        int redistribute_ngrow = 0;
+        if ((iteration < nsubsteps[lev]) || (lev == 0)){
+            if (lev == 0){
+                redistribute_ngrow = 0;
+            } else {
+                redistribute_ngrow = iteration;
+            }
+            TracerPC->Redistribute(lev, TracerPC->finestLevel(), redistribute_ngrow);
+        }
+    }
+#endif
 }
 
 // Advance all the levels with the same dt
