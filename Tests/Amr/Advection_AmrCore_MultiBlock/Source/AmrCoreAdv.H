@@ -112,13 +112,19 @@ public:
     void timeStepWithSubcycling_original (int lev, amrex::Real time, int iteration);
 
     // Advance a level by dt - includes a recursive call for finer levels
-    void timeStepWithSubcycling (int lev, amrex::Real time, int iteration);
+    void timeStepWithSubcycling (int lev, int iteration);
 
     // Advance all levels by the same dt
     void timeStepNoSubcycling (amrex::Real time, int iteration);
 
     // Regrid routine
-    void perform_regrid(amrex::Real time);
+    void perform_regrid(amrex::Real);
+
+    // Regrid routine for subcycling
+    void perform_regridWithSubcycling(int);
+
+    // Reflux here across multiple levels
+    void perform_reflux_across_lev(int);
 
     void check_finer();
 
@@ -175,6 +181,7 @@ public:
     const int& getFinestLevel() const;
     const int& getNsubsteps(int) const;
     const amrex::Real& getLevel0Dt() const;
+    const amrex::Real& getLevelLevDt(int) const;
     const amrex::Real& getTnewLev(int) const;
     const int& getChk_int() const;
     const int& getPlot_int() const;
@@ -187,6 +194,10 @@ public:
 
     //
     amrex::Real computeSumLevel0();
+
+    int index_core;
+
+    amrex::Vector<amrex::MultiFab> phi_new;
 
 private:
 
@@ -204,7 +215,7 @@ private:
 
     static constexpr int NUM_COMPONENTS = 1; // number of conservative variables 
 
-    int index_core;
+    //int index_core;
 
     amrex::Vector<int> last_regrid_step;
 
@@ -260,7 +271,7 @@ private:
 
     // array of multifabs to store the solution at each level of refinement
     // after advancing a level we use "swap".
-    amrex::Vector<amrex::MultiFab> phi_new;
+    //amrex::Vector<amrex::MultiFab> phi_new;
     amrex::Vector<amrex::MultiFab> phi_old;
 
     // this is essentially a 2*DIM integer array storing the physical boundary

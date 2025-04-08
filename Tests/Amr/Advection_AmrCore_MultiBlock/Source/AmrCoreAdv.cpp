@@ -151,7 +151,7 @@ AmrCoreAdv::Evolve ()
         int lev = 0;
         int iteration = 1;
         if (do_subcycle) {
-            timeStepWithSubcycling(lev, cur_time, iteration);
+            timeStepWithSubcycling_original(lev, cur_time, iteration);
         } else {
             timeStepNoSubcycling(cur_time, iteration);
         }
@@ -918,6 +918,49 @@ AmrCoreAdv::check_finer_communication()
     }
 }
 
+void
+AmrCoreAdv::perform_regridWithSubcycling(int lev)
+{
+    const auto time = t_new[lev];
+    if (regrid_int > 0)  // We may need to regrid
+    {
+
+        // help keep track of whether a level was already regridded
+        // from a coarser level call to regrid
+        //static amrex::Vector<int> last_regrid_step(max_level+1, 0);
+
+        // regrid changes level "lev+1" so we don't regrid on max_level
+        // also make sure we don't regrid fine levels again if
+        // it was taken care of during a coarser regrid
+
+        if (lev < max_level && istep[lev] > last_regrid_step[lev])
+        {
+            if (istep[lev] % regrid_int == 0)
+            {
+                // regrid could add newly refined levels (if finest_level < max_level)
+                // so we save the previous finest level index
+                int old_finest = finest_level;
+                regrid(lev, time); // the mesh adaption is carried out just here
+
+                // mark that we have regridded this level already
+                for (int k = lev; k <= finest_level; ++k) {
+                    last_regrid_step[k] = istep[k];
+                }
+
+                // if there are newly created levels, set the time step
+                for (int k = old_finest+1; k <= finest_level; ++k) {
+                    dt[k] = dt[k-1] / MaxRefRatio(k-1);
+                }
+/*
+#ifdef AMREX_PARTICLES
+                if (do_tracers) {
+                    TracerPC->Redistribute(lev);
+                }
+#endif */
+            }
+        }
+    }
+}
 
 // Advance a level by dt
 // (includes a recursive call for finer levels)
@@ -941,10 +984,10 @@ AmrCoreAdv::timeStepWithSubcycling_original (int lev, Real time, int iteration)
         {
             if (istep[lev] % regrid_int == 0)
             { 
-                // regrid could add newly refine levels (if finest_level < max_level)
+                // regrid could add newly refined levels (if finest_level < max_level)
                 // so we save the previous finest level index
                 int old_finest = finest_level;
-                regrid(lev, time); // the mesh adaption is carried on just here
+                regrid(lev, time); // the mesh adaption is carried out just here
 
                 // mark that we have regridded this level already
                 for (int k = lev; k <= finest_level; ++k) {
@@ -955,24 +998,23 @@ AmrCoreAdv::timeStepWithSubcycling_original (int lev, Real time, int iteration)
                 for (int k = old_finest+1; k <= finest_level; ++k) {
                     dt[k] = dt[k-1] / MaxRefRatio(k-1);
                 }
-
+/*
 #ifdef AMREX_PARTICLES
                 if (do_tracers) {
                     TracerPC->Redistribute(lev);
                 }
-#endif
+#endif */
             }
         }
     }
-/*
+
     if (Verbose()) {
         amrex::Print() << "[Core " << index_core << " level " << lev << " step " << istep[lev]+1 << "] ";
         amrex::Print() << "ADVANCE with time = " << t_new[lev]
-                       << " dt = " << dt[lev] << '\n';
+                       << " dt = " << dt[lev] << " iteration " << iteration << "" << time << '\n';
     }
-*/
-    // Advance a single level for a single time step, and update flux registers
 
+    // Advance a single level for a single time step, and update flux registers
     t_old[lev] = t_new[lev];
     t_new[lev] += dt[lev];
 
@@ -981,30 +1023,31 @@ AmrCoreAdv::timeStepWithSubcycling_original (int lev, Real time, int iteration)
     // here is the core part of the numerical scheme
     DefineVelocityAtLevel(lev, t_nph);
     AdvancePhiAtLevel(lev, time, dt[lev], iteration, nsubsteps[lev]);
-
+/*
 #ifdef AMREX_PARTICLES
     if (do_tracers) {
         TracerPC->AdvectWithUmac(facevel[lev].data(),lev,dt[lev]);
     }
 #endif
-
+*/
     ++istep[lev];
-/*
+
     if (Verbose()) 
-    {//amrex::Print() << index_core << " " << lev << " " << istep[lev] << '\n';
+    {
         amrex::Print() << "[Core " << index_core << " level " << lev << " step " << istep[lev] << "] ";
-        amrex::Print() << "Advanced " << CountCells(lev) << " cells" << '\n';
-    }*/
-//exit(1);
+        amrex::Print() << "Advanced " << CountCells(lev) << " cells " << "iteration " << iteration << " time " << time << '\n';
+    }
+
     if (lev < finest_level)
     {
         // recursive call for next-finer level
         for (int i = 1; i <= nsubsteps[lev+1]; ++i)
         {
-            timeStepWithSubcycling(lev+1, time+(i-1)*dt[lev+1], i);
+            timeStepWithSubcycling_original(lev+1, time+(i-1)*dt[lev+1], i);
         }
-//std::cout << index_core << " " << lev << std::endl;
-        if (do_reflux)
+std::cout << index_core << " " << lev << std::endl;
+     
+	if (do_reflux)
         {
             // update lev based on coarse-fine flux mismatch
             flux_reg[lev+1]->Reflux(phi_new[lev], 1.0, 0, 0, phi_new[lev].nComp(), geom[lev]);
@@ -1013,9 +1056,10 @@ AmrCoreAdv::timeStepWithSubcycling_original (int lev, Real time, int iteration)
         AverageDownTo(lev); // average lev+1 down to lev
 
         fillpatcher[lev+1].reset(); // Because the data on lev have changed.
+   
     }
 //std::cout << index_core << " " << lev << std::endl;
-
+/*
 #ifdef AMREX_PARTICLES
     if (do_tracers) {
         int redistribute_ngrow = 0;
@@ -1029,15 +1073,26 @@ AmrCoreAdv::timeStepWithSubcycling_original (int lev, Real time, int iteration)
         }
     }
 #endif
-
+*/
 }
 
+void
+AmrCoreAdv::perform_reflux_across_lev(int lev)
+{
+    if (do_reflux)
+    {
+        // update lev based on coarse-fine flux mismatch
+        flux_reg[lev+1]->Reflux(phi_new[lev], 1.0, 0, 0, phi_new[lev].nComp(), geom[lev]);
+    }
+    AverageDownTo(lev); // average lev+1 down to lev
+    fillpatcher[lev+1].reset(); // Because the data on lev have changed.
+}
 
 
 // Advance a level by dt
 // (includes a recursive call for finer levels)
 void
-AmrCoreAdv::timeStepWithSubcycling (int lev, Real time, int iteration)
+AmrCoreAdv::timeStepWithSubcycling (int lev, int iteration)
 {
 /*
     //std::cout << index_core << " " << regrid_int << std::endl;
@@ -1081,10 +1136,12 @@ AmrCoreAdv::timeStepWithSubcycling (int lev, Real time, int iteration)
         }
     }
 */
+    const auto time = t_new[lev];
+
     if (Verbose()) {
         amrex::Print() << "[Core " << index_core << " level " << lev << " step " << istep[lev]+1 << "] ";
         amrex::Print() << "ADVANCE with time = " << t_new[lev]
-                       << " dt = " << dt[lev] << '\n';
+                       << " dt = " << dt[lev] << " iteration " << iteration << " time " << time << '\n';
     }
 
     // Advance a single level for a single time step, and update flux registers
@@ -1097,19 +1154,19 @@ AmrCoreAdv::timeStepWithSubcycling (int lev, Real time, int iteration)
     // here is the core part of the numerical scheme
     DefineVelocityAtLevel(lev, t_nph);
     AdvancePhiAtLevel(lev, time, dt[lev], iteration, nsubsteps[lev]);
-
+/*
 #ifdef AMREX_PARTICLES
     if (do_tracers) {
         TracerPC->AdvectWithUmac(facevel[lev].data(),lev,dt[lev]);
     }
 #endif
-
+*/
     ++istep[lev];
 
     if (Verbose())
     {
         amrex::Print() << "[Core " << index_core << " level " << lev << " step " << istep[lev] << "] ";
-        amrex::Print() << "Advanced " << CountCells(lev) << " cells" << '\n';
+        amrex::Print() << "Advanced " << CountCells(lev) << " cells" << " iteration " << iteration << " time " << time << '\n';
     }
 /*
     if (lev < finest_level)
@@ -1226,6 +1283,10 @@ AmrCoreAdv::getNsubsteps(int lev) const {
 const Real&
 AmrCoreAdv::getLevel0Dt() const {
     return dt[0];
+}
+const Real& 
+AmrCoreAdv::getLevelLevDt(int lev) const {
+    return dt[lev];
 }
 const Real& 
 AmrCoreAdv::getTnewLev(int lev) const {
