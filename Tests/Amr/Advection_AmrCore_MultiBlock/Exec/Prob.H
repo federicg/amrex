@@ -18,9 +18,9 @@ initdata(amrex::Box const& bx, amrex::Array4<amrex::Real> const& phi,
     const auto lo = lbound(bx); 
     const auto hi = ubound(bx);
 
-    constexpr double R = 0.15;
+    constexpr double R = 0.25;
 
-    Real center[] = {0, 0}; //{1, 0};
+    Real center[] = {.25, 0}; //{1, 0};
 
     for         (int k = lo.z; k <= hi.z; ++k) {
         for     (int j = lo.y; j <= hi.y; ++j) {

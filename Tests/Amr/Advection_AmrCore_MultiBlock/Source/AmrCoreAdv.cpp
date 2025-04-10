@@ -544,6 +544,34 @@ AmrCoreAdv::setOtherCore(const AmrCoreAdv* other_0, const AmrCoreAdv* other_1, c
     other_core[3] = other_3; // communication down
 }
 
+
+
+void 
+AmrCoreAdv::create_ghost_multifabs(int ng, int lev) {
+
+     // consider in the future to put the .define outside the loop in time as the definition should be always the same, right?
+    array_vec_mf_g[0][lev].define(other_core[0]->phi_new[lev].boxArray(), other_core[0]->phi_new[lev].DistributionMap(), other_core[0]->phi_new[lev].nComp(), ng);
+    array_vec_mf_g[0][lev].setVal(0);
+    array_vec_mf_g[0][lev].ParallelCopy(other_core[0]->phi_new[lev]);
+    array_vec_mf_g[0][lev].FillBoundary();
+
+    array_vec_mf_g[1][lev].define(other_core[1]->phi_new[lev].boxArray(), other_core[1]->phi_new[lev].DistributionMap(), other_core[1]->phi_new[lev].nComp(), ng);
+    array_vec_mf_g[1][lev].setVal(0);
+    array_vec_mf_g[1][lev].ParallelCopy(other_core[1]->phi_new[lev]);
+    array_vec_mf_g[1][lev].FillBoundary();
+
+    array_vec_mf_g[2][lev].define(other_core[2]->phi_new[lev].boxArray(), other_core[2]->phi_new[lev].DistributionMap(), other_core[2]->phi_new[lev].nComp(), ng);
+    array_vec_mf_g[2][lev].setVal(0);
+    array_vec_mf_g[2][lev].ParallelCopy(other_core[2]->phi_new[lev]);
+    array_vec_mf_g[2][lev].FillBoundary();
+
+    array_vec_mf_g[3][lev].define(other_core[3]->phi_new[lev].boxArray(), other_core[3]->phi_new[lev].DistributionMap(), other_core[3]->phi_new[lev].nComp(), ng);
+    array_vec_mf_g[3][lev].setVal(0);
+    array_vec_mf_g[3][lev].ParallelCopy(other_core[3]->phi_new[lev]);
+    array_vec_mf_g[3][lev].FillBoundary();
+}
+
+
 //
 void 
 AmrCoreAdv::create_ghost_multifabs(int ng) {
@@ -845,17 +873,20 @@ AmrCoreAdv::reset_level_tagger()
     } 
 }
 
+
+
 void
-AmrCoreAdv::check_finer()
+AmrCoreAdv::check_finer(int lev)
 {
-    // the finest level is alredy initialized to 0 brcause there isn't anything behind it!
-    level_tagger[finest_level].define(phi_new[finest_level].boxArray(), phi_new[finest_level].DistributionMap(), phi_new[finest_level].nComp(), 1); // just consider 1 ghost cell!
-    level_tagger[finest_level].setVal(0); // the tag 0 can be read as level 0
-    level_tagger[finest_level].FillBoundary();
+    if ((lev+1)==finest_level)
+    {
+        // the finest level is alredy initialized to 0 because there isn't anything behind it!
+        level_tagger[finest_level].define(phi_new[finest_level].boxArray(), phi_new[finest_level].DistributionMap(), phi_new[finest_level].nComp(), 1); // just consider 1 ghost cell!
+        level_tagger[finest_level].setVal(0); // the tag 0 can be read as level 0
+        level_tagger[finest_level].FillBoundary();
+    }
 
     IntVect ones_vect = IntVect(AMREX_D_DECL(1, 1, 1));
-
-    for (int lev=0; lev<finest_level; lev++) 
     {
               auto& current_tag_lev = level_tagger[lev];
         const auto& current_sol_lev = phi_new     [lev];
@@ -865,25 +896,18 @@ AmrCoreAdv::check_finer()
         current_tag_lev.setVal(0); // the tag 0 can be read as level 0
         current_tag_lev.FillBoundary();
 
-
-        //ref_ratio = ref_ratio*refRatio(lev-1);  // Refinement ratio to next level
         for (MFIter mfi(current_tag_lev, TilingIfNotGPU()); mfi.isValid(); ++mfi)
         {
             const Box& bx = mfi.validbox();
             const auto& fab = current_tag_lev.array(mfi);  // Access MultiFab data
-
             const BoxArray& finer_grids = boxArray(lev+1);
-            
             ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
             {
                 // Compute the equivalent index in the finer level
-                //IntVect fine_idx = IntVect(AMREX_D_DECL(i, j, k))*ref_ratio;
-
                 const auto current_index = IntVect(AMREX_D_DECL(i, j, k));
-
                 auto fine_idx = current_index*refRatio(lev); // we take the left index of the tree structure at fine level
 
-                //std::cout << fine_idx << " " << refRatio(lev-1) << " " << i << " " << j << " " << ref_ratio << std::endl;
+		//std::cout << refRatio(lev) << std::endl;
 
                 bool covered_by_finer = false;
                 for (int nb = 0; nb < finer_grids.size(); ++nb)
@@ -898,15 +922,67 @@ AmrCoreAdv::check_finer()
                 if (covered_by_finer)
                 {
                     fab(current_index) = 1;  // Mark cells that have a finer level behind
+                }
+            });
+            
+        }
+    }
+}
 
-                    //if (index_core==1 && i==63) 
-                        //std::cout << i << " " << j << " " << index_core << " " << std::endl;
+
+
+void
+AmrCoreAdv::check_finer()
+{
+    // the finest level is alredy initialized to 0 because there isn't anything behind it!
+    level_tagger[finest_level].define(phi_new[finest_level].boxArray(), phi_new[finest_level].DistributionMap(), phi_new[finest_level].nComp(), 1); // just consider 1 ghost cell!
+    level_tagger[finest_level].setVal(0); // the tag 0 can be read as level 0
+    level_tagger[finest_level].FillBoundary();
+
+    IntVect ones_vect = IntVect(AMREX_D_DECL(1, 1, 1));
+    for (int lev=0; lev<finest_level; lev++) 
+    {
+              auto& current_tag_lev = level_tagger[lev];
+        const auto& current_sol_lev = phi_new     [lev];
+
+        // reset here first 
+        current_tag_lev.define(current_sol_lev.boxArray(), current_sol_lev.DistributionMap(), current_sol_lev.nComp(), 1); // just consider 1 ghost cell!
+        current_tag_lev.setVal(0); // the tag 0 can be read as level 0
+        current_tag_lev.FillBoundary();
+
+        for (MFIter mfi(current_tag_lev, TilingIfNotGPU()); mfi.isValid(); ++mfi)
+        {
+            const Box& bx = mfi.validbox();
+            const auto& fab = current_tag_lev.array(mfi);  // Access MultiFab data
+            const BoxArray& finer_grids = boxArray(lev+1);
+            ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+            {
+                // Compute the equivalent index in the finer level
+                const auto current_index = IntVect(AMREX_D_DECL(i, j, k));
+                auto fine_idx = current_index*refRatio(lev); // we take the left index of the tree structure at fine level
+
+		//std::cout << refRatio(lev) << std::endl;
+                
+                for (int nb = 0; nb < finer_grids.size(); ++nb)
+                {
+                    if (finer_grids[nb].contains(fine_idx))
+                    {	
+                        fab(current_index) = 1;  // Mark cells that have a finer level behind
+			break;
+                    }
                 }
             });
             
         }
     }
 
+}
+
+
+void
+AmrCoreAdv::check_finer_communication(int lev)
+{
+    FillBoundaryMarkers_ghost[lev](level_tagger[lev], other_core, lev);
 }
 
 void
@@ -919,7 +995,7 @@ AmrCoreAdv::check_finer_communication()
 }
 
 void
-AmrCoreAdv::perform_regridWithSubcycling(int lev)
+AmrCoreAdv::perform_regridWithSubcycling(int lev, bool is_last_ref)
 {
     const auto time = t_new[lev];
     if (regrid_int > 0)  // We may need to regrid
@@ -933,8 +1009,12 @@ AmrCoreAdv::perform_regridWithSubcycling(int lev)
         // also make sure we don't regrid fine levels again if
         // it was taken care of during a coarser regrid
 
+	//std::cout << "aaaaaaa" << std::endl;
+	//std::cout << lev << " " << istep[lev] << " " << last_regrid_step[lev] << std::endl;
         if (lev < max_level && istep[lev] > last_regrid_step[lev])
         {
+            
+	    //std::cout << lev << " " << istep[lev] << " " << last_regrid_step[lev] << std::endl;
             if (istep[lev] % regrid_int == 0)
             {
                 // regrid could add newly refined levels (if finest_level < max_level)
@@ -943,9 +1023,12 @@ AmrCoreAdv::perform_regridWithSubcycling(int lev)
                 regrid(lev, time); // the mesh adaption is carried out just here
 
                 // mark that we have regridded this level already
-                for (int k = lev; k <= finest_level; ++k) {
-                    last_regrid_step[k] = istep[k];
-                }
+		if (is_last_ref)
+		{
+                    for (int k = lev; k <= finest_level; ++k) {
+                        last_regrid_step[k] = istep[k];
+                    }
+		}
 
                 // if there are newly created levels, set the time step
                 for (int k = old_finest+1; k <= finest_level; ++k) {
@@ -1011,7 +1094,7 @@ AmrCoreAdv::timeStepWithSubcycling_original (int lev, Real time, int iteration)
     if (Verbose()) {
         amrex::Print() << "[Core " << index_core << " level " << lev << " step " << istep[lev]+1 << "] ";
         amrex::Print() << "ADVANCE with time = " << t_new[lev]
-                       << " dt = " << dt[lev] << " iteration " << iteration << "" << time << '\n';
+                       << " dt = " << dt[lev] << " iteration " << iteration << " time " << time << '\n';
     }
 
     // Advance a single level for a single time step, and update flux registers

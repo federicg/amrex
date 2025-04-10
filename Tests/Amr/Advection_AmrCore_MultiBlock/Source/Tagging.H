@@ -23,6 +23,9 @@ state_error (int i, int j, int k,
             if (taggerfab(i+1,j,k)==1) // take ghost, hope it exists! check it if it does not work
             {
                 is_taggerfab = true;
+		
+		//std::cout << "a" << std::endl;
+		//exit(1);
             }
         }
         if (i==valid_start[0]) // left boundary
@@ -32,31 +35,36 @@ state_error (int i, int j, int k,
             {
                 //std::cout << current_index << " " << std::endl;
                 is_taggerfab = true; 
-            }
+            
+		//std::cout << "a" << std::endl;
+		//exit(1);
+	    }
         }
         if (j==valid_end[1]) // upper boundary
         {
             if (taggerfab(i,j+1,k)==1) // take ghost, hope it exists! check it if it does not work
             {
                 is_taggerfab = true;
-            }
+            
+		//std::cout << "a" << std::endl;
+		//exit(1);
+	    }
         }
         if (j==valid_start[1]) // bottom boundary
         {
             if (taggerfab(i,j-1,k)==1) // take ghost, hope it exists! check it if it does not work
             {
                 is_taggerfab = true;
-            }
+            
+		//std::cout << "a" << std::endl;
+		//exit(1);
+	    }
         }
     }
 
     if (state(current_index) > phierr || is_taggerfab) {
         tag(current_index) = tagval;
     }
-
-//#if (AMREX_SPACEDIM == 2)
-//#elif (AMREX_SPACEDIM == 3)
-//#endif
 }
 
 #endif

@@ -18,7 +18,7 @@ void slopex2(amrex::Box const& bx,
 
     for         (int k = lo.z; k <= hi.z; ++k) {
         for     (int j = lo.y; j <= hi.y; ++j) {
-            for (int i = lo.x; i <= hi.x; ++i) {
+            for (int i = lo.x; i <= hi.x; ++i) {/*
                 Real dlft = q(i,j,k) - q(i-1,j,k);
                 Real drgt = q(i+1,j,k) - q(i,j,k);
                 Real dcen = Real(0.5)*(dlft+drgt);
@@ -26,7 +26,7 @@ void slopex2(amrex::Box const& bx,
                 Real dslop = Real(2.0) * ((std::abs(dlft) < std::abs(drgt)) ?
                                            std::abs(dlft) : std::abs(drgt));
                 Real dlim = (dlft*drgt >= Real(0.0)) ? dslop : Real(0.0);
-                dq(i,j,k) = dsgn*amrex::min(dlim, std::abs(dcen));
+                dq(i,j,k) = dsgn*amrex::min(dlim, std::abs(dcen));*/
             }
         }
     }
@@ -46,7 +46,7 @@ void slopex4(amrex::Box const& bx,
 
     for         (int k = lo.z; k <= hi.z; ++k) {
         for     (int j = lo.y; j <= hi.y; ++j) {
-            for (int i = lo.x; i <= hi.x; ++i) {
+            for (int i = lo.x; i <= hi.x; ++i) {/*
                 Real dlft = q(i,j,k) - q(i-1,j,k);
                 Real drgt = q(i+1,j,k) - q(i,j,k);
                 Real dcen = Real(0.5)*(dlft+drgt);
@@ -55,7 +55,7 @@ void slopex4(amrex::Box const& bx,
                                            std::abs(dlft) : std::abs(drgt));
                 Real dlim = (dlft*drgt >= Real(0.0)) ? dslop : Real(0.0);
                 Real dq1 = Real(4.0/3.0)*dcen - Real(1.0/6.0)*(dq(i+1,j,k) + dq(i-1,j,k));
-                dq4(i,j,k) = dsgn*amrex::min(dlim, std::abs(dq1));
+                dq4(i,j,k) = dsgn*amrex::min(dlim, std::abs(dq1));*/
             }
         }
     }
@@ -76,7 +76,7 @@ void slopey2(amrex::Box const& bx,
 
     for         (int k = lo.z; k <= hi.z; ++k) {
         for     (int j = lo.y; j <= hi.y; ++j) {
-            for (int i = lo.x; i <= hi.x; ++i) {
+            for (int i = lo.x; i <= hi.x; ++i) {/*
                 Real dlft = q(i,j,k) - q(i,j-1,k);
                 Real drgt = q(i,j+1,k) - q(i,j,k);
                 Real dcen = Real(0.5)*(dlft+drgt);
@@ -84,7 +84,7 @@ void slopey2(amrex::Box const& bx,
                 Real dslop = Real(2.0) * ((std::abs(dlft) < std::abs(drgt)) ?
                                            std::abs(dlft) : std::abs(drgt));
                 Real dlim = (dlft*drgt >= Real(0.0)) ? dslop : Real(0.0);
-                dq(i,j,k) = dsgn*amrex::min(dlim, std::abs(dcen));
+                dq(i,j,k) = dsgn*amrex::min(dlim, std::abs(dcen));*/
             }
         }
     }
@@ -104,7 +104,7 @@ void slopey4(amrex::Box const& bx,
 
     for         (int k = lo.z; k <= hi.z; ++k) {
         for     (int j = lo.y; j <= hi.y; ++j) {
-            for (int i = lo.x; i <= hi.x; ++i) {
+            for (int i = lo.x; i <= hi.x; ++i) {/*
                 Real dlft = q(i,j,k) - q(i,j-1,k);
                 Real drgt = q(i,j+1,k) - q(i,j,k);
                 Real dcen = Real(0.5)*(dlft+drgt);
@@ -113,7 +113,7 @@ void slopey4(amrex::Box const& bx,
                                            std::abs(dlft) : std::abs(drgt));
                 Real dlim = (dlft*drgt >= Real(0.0)) ? dslop : Real(0.0);
                 Real dq1 = Real(4.0/3.0)*dcen - Real(1.0/6.0)*(dq(i,j+1,k) + dq(i,j-1,k));
-                dq4(i,j,k) = dsgn*amrex::min(dlim, std::abs(dq1));
+                dq4(i,j,k) = dsgn*amrex::min(dlim, std::abs(dq1));*/
             }
         }
     }

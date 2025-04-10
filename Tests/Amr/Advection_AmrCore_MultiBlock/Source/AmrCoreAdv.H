@@ -19,6 +19,7 @@
 #include <limits>
 #include <memory>
 #include <string>
+#include <optional>
 
 class AmrCoreAdv
     : public amrex::AmrCore
@@ -121,12 +122,13 @@ public:
     void perform_regrid(amrex::Real);
 
     // Regrid routine for subcycling
-    void perform_regridWithSubcycling(int);
+    void perform_regridWithSubcycling(int,bool);
 
     // Reflux here across multiple levels
     void perform_reflux_across_lev(int);
 
     void check_finer();
+    void check_finer(int);
 
     std::array<amrex::Vector<amrex::MultiFab>, 4> array_vec_mf_g;
 
@@ -135,6 +137,7 @@ public:
     void setOtherCore(const AmrCoreAdv*, const AmrCoreAdv*, const AmrCoreAdv*, const AmrCoreAdv*);
 
     void create_ghost_multifabs(int);
+    void create_ghost_multifabs(int, int);
 
     struct OnesidedMultiBlockBoundaryFn {
       amrex::NonLocalBC::MultiBlockIndexMapping dtos;
@@ -170,6 +173,7 @@ public:
     void MoveMultiBlocks();
 
     void check_finer_communication();
+    void check_finer_communication(int);
     void reset_level_tagger();
 
     // if >= 0 we restart from a checkpoint
