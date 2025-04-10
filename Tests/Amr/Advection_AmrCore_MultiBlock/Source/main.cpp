@@ -113,17 +113,16 @@ int main(int argc, char* argv[])
         // put here the communication part, 0 is the right boundary of the receiver, 1 is the left boundary of the receiver, 2 is the upper boundary of the receiver, 3, is the lower boundary of the receiver
         int num_ghost = 3;
         {
+	    Box domain_ref = domain;
             // communication part for the solution of the PDE
-            auto current_ref_ratio = IntVect(AMREX_D_DECL(1, 1, 1));
+            //auto current_ref_ratio = IntVect(AMREX_D_DECL(1, 1, 1));
             for (int lev = 0; lev <= amr_info.max_level; ++lev)
             {
-                Box domain_ref = amrex::refine(domain, current_ref_ratio);
+                if (lev>0) domain_ref = amrex::refine(domain_ref, amr_info.ref_ratio[lev]);
 
                 // build the communciation
                 build_ghost_communicators(amr_core_adv_1.multi_block_boundaries       [lev], amr_core_adv_2.multi_block_boundaries       [lev], domain_ref, num_ghost);
                 build_ghost_communicators(amr_core_adv_1.multi_block_boundariesMarkers[lev], amr_core_adv_2.multi_block_boundariesMarkers[lev], domain_ref, 1        );
-
-                current_ref_ratio *= amr_info.ref_ratio[lev];
  	    }           
         }
 
