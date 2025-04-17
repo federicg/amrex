@@ -36,20 +36,40 @@ AMREX_GPU_DEVICE
 AMREX_FORCE_INLINE
 void get_face_velocity_x(int i, int j, int k,
                          amrex::Array4<amrex::Real> const& vx,
+			 const amrex::Real time,
+			 const int index_core,
                          amrex::Array4<amrex::Real> const& psi,
                          amrex::Real dy)
 {
-    vx(i,j,k) =  1.0; //-( (psi(i,j+1,0)+psi(i-1,j+1,0)) - (psi(i,j-1,0)+psi(i-1,j-1,0)) ) * (0.25/dy);
+    constexpr amrex::Real omega = 1;
+    vx(i,j,k) = -omega*std::sin(omega*time);
+    /*
+    if (index_core==1) vx(i,j,k) = -1;
+    if (index_core==3) vx(i,j,k) = .1;
+    if (index_core==2) vx(i,j,k) = 0;
+    if (index_core==5) vx(i,j,k) = -1;
+    if (index_core==4) vx(i,j,k) = 1;*/
+    //vx(i,j,k) =  -( (psi(i,j+1,0)+psi(i-1,j+1,0)) - (psi(i,j-1,0)+psi(i-1,j-1,0)) ) * (0.25/dy);
 }
 
 AMREX_GPU_DEVICE
 AMREX_FORCE_INLINE
 void get_face_velocity_y(int i, int j, int k,
                          amrex::Array4<amrex::Real> const& vy,
+			 const amrex::Real time,
+			 const int index_core,
                          amrex::Array4<amrex::Real> const& psi,
                          amrex::Real dx)
 {
-    vy(i,j,k) =  0.0;// ( (psi(i+1,j,0)+psi(i+1,j-1,0)) - (psi(i-1,j,0)+psi(i-1,j-1,0)) ) * (0.25/dx);
+    constexpr amrex::Real omega = 1;
+    vy(i,j,k) = index_core==4 ? -omega*std::sin(omega*time) : omega*std::cos(omega*time);
+    /*
+    if (index_core==1) vy(i,j,k) = 0;
+    if (index_core==3) vy(i,j,k) = 1;
+    if (index_core==2) vy(i,j,k) = -1;
+    if (index_core==5) vy(i,j,k) = 0;
+    if (index_core==4) vy(i,j,k) = -.1;*/
+    //vy(i,j,k) =  0.0;// ( (psi(i+1,j,0)+psi(i+1,j-1,0)) - (psi(i-1,j,0)+psi(i-1,j-1,0)) ) * (0.25/dx);
 }
 
 AMREX_GPU_DEVICE

@@ -13,11 +13,22 @@ void conservative(int i, int j, int k,
                                amrex::Array4<amrex::Real const> const& flxy,
                                amrex::Array4<amrex::Real const> const& flxz),
                   AMREX_D_DECL(amrex::Real dtdx, amrex::Real dtdy, amrex::Real dtdz))
-{  
+{
+    //phi_out(i,j,k) = 1;
+    //if (flxy(i,j,k)!=0)
+    //{
+	//std::cout << flxy(i,j,k) << " " << flxy(i,j+1,k) << std::endl;
+    	//exit(1);
+    //}
+    //std::cout << phi_in.nGrow() << std::endl; 
+
+    //std::cout << flxx(i,j,k) << std::endl;	
+
     phi_out(i,j,k) = phi_in(i,j,k) +
                 ( AMREX_D_TERM( (flxx(i,j,k) - flxx(i+1,j,k)) * dtdx,
                               + (flxy(i,j,k) - flxy(i,j+1,k)) * dtdy,
                               + (flxz(i,j,k) - flxz(i,j,k+1)) * dtdz ) );
+    
 }
 
 #endif

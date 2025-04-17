@@ -67,15 +67,21 @@ AmrCoreAdv::AmrCoreAdv (Geometry const& level_0_geom, int index_core,
 
     facevel.resize(nlevs_max);
 
+/*
     // periodic boundaries
     int bc_lo[] = {BCType::int_dir, BCType::int_dir, BCType::int_dir};
     int bc_hi[] = {BCType::int_dir, BCType::int_dir, BCType::int_dir};
-
+*/
 /*
+    // ext bc
+    int bc_lo[] = {BCType::ext_dir, BCType::ext_dir, BCType::ext_dir};
+    int bc_hi[] = {BCType::ext_dir, BCType::ext_dir, BCType::ext_dir};
+*/
+
     // walls (Neumann)
     int bc_lo[] = {amrex::BCType::foextrap, amrex::BCType::foextrap, amrex::BCType::foextrap};
     int bc_hi[] = {amrex::BCType::foextrap, amrex::BCType::foextrap, amrex::BCType::foextrap};
-*/
+
 
     //std::cout << level_0_geom.isPeriodic(0) << " " << BCType::int_dir << " " << BCType::foextrap << std::endl;
     //exit(1);
@@ -320,11 +326,12 @@ AmrCoreAdv::RemakeLevel (int lev, Real time, const BoxArray& ba,
 void
 AmrCoreAdv::ClearLevel (int lev)
 {
+	//std::cout << "Current Level: " << lev << " " << index_core << std::endl; 
+	//exit(1);
     phi_new[lev].clear();
     phi_old[lev].clear();
     flux_reg[lev].reset(nullptr);
     fillpatcher[lev].reset(nullptr);
-    //fillpatcher_ghost_boundary[lev].reset(nullptr);
 }
 
 // Make a new level from scratch using provided BoxArray and DistributionMapping.
@@ -460,7 +467,7 @@ AmrCoreAdv::ErrorEst (int lev, TagBoxArray& tags, Real /*time*/, int /*ngrow*/)
                 //if (lev==1 && x>0) tagfab(i,j,k) = tagval; 
                 //if (x>0.1) tagfab(i,j,k) = fine_tagval;  
 
-                state_error(i, j, k, tagfab, statefab, taggerfab, phierror, tagval, valid_start, valid_end, is_first);
+                state_error(i, j, k, tagfab, statefab, taggerfab, phierror, tagval, valid_start, valid_end, is_first, lev);
             });
         }
     }
@@ -963,6 +970,8 @@ AmrCoreAdv::check_finer()
 
 		//std::cout << refRatio(lev) << std::endl;
                 
+		//fab(current_index) = 1;
+
                 for (int nb = 0; nb < finer_grids.size(); ++nb)
                 {
                     if (finer_grids[nb].contains(fine_idx))
@@ -1314,7 +1323,7 @@ AmrCoreAdv::timeStepNoSubcycling (Real time, int iteration)
     if (Verbose()) {
         for (int lev = 0; lev <= finest_level; lev++)
         {
-           amrex::Print() << "[Level " << lev << " step " << istep[lev]+1 << "] ";
+           amrex::Print() << "[Core " << index_core << " Level " << lev << " step " << istep[lev]+1 << "] ";
            amrex::Print() << "ADVANCE with time = " << t_new[lev]
                           << " dt = " << dt[0] << '\n';
         }
@@ -1348,7 +1357,7 @@ AmrCoreAdv::timeStepNoSubcycling (Real time, int iteration)
     {
         for (int lev = 0; lev <= finest_level; lev++)
         {
-            amrex::Print() << "[Level " << lev << " step " << istep[lev] << "] ";
+            amrex::Print() << "[Core " << index_core << " Level " << lev << " step " << istep[lev] << "] ";
             amrex::Print() << "Advanced " << CountCells(lev) << " cells" << '\n';
         }
     }
@@ -1464,11 +1473,13 @@ AmrCoreAdv::EstTimeStep (int lev, Real time)
        DefineVelocityAtLevel(lev,t_nph_predicted);
     }
 
-    for (int idim = 0; idim < AMREX_SPACEDIM; ++idim)
+    //for (int idim = 0; idim < AMREX_SPACEDIM; ++idim)
     {
-        Real est = facevel[lev][idim].norminf(0,0,true);
-        dt_est = amrex::min(dt_est, dx[idim]/est);
+        Real est = std::sqrt(facevel[lev][0].norminf(0,0,true)*facevel[lev][0].norminf(0,0,true) + 
+		             facevel[lev][1].norminf(0,0,true)*facevel[lev][1].norminf(0,0,true));
+        dt_est = amrex::min(dt_est, std::min(dx[0],dx[1])/est);
     }
+    
 
     dt_est *= cfl;
 

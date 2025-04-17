@@ -10,7 +10,7 @@ state_error (int i, int j, int k,
              amrex::Array4<char> const& tag,
              amrex::Array4<amrex::Real const> const& state,
              amrex::Array4<amrex::Real const> const& taggerfab,
-             amrex::Real phierr, char tagval, amrex::IntVect valid_start, amrex::IntVect valid_end, bool is_first)
+             amrex::Real phierr, char tagval, amrex::IntVect valid_start, amrex::IntVect valid_end, bool is_first, int lev)
 {
     amrex::IntVect current_index = amrex::IntVect(AMREX_D_DECL(i, j, k));
 
@@ -62,8 +62,16 @@ state_error (int i, int j, int k,
         }
     }
 
+    //if (lev==0 && (i==0 || i==63)) is_taggerfab = false;
+    //if (lev==1 && (i==0 || i==127)) is_taggerfab = false;
+
+    //if (i<0 || i>63 || i )
     if (state(current_index) > phierr || is_taggerfab) {
         tag(current_index) = tagval;
+
+        //if (lev==0) if (i>=1 && i<=62) tag(current_index) = tagval;
+	//if (lev==1) if (i>=3 && i<= 124) tag(current_index) = tagval;     
+	//if ((lev==0 && (i!=0 || i!=63)) || (lev==1 && (i!=0 || i!=127))) tag(current_index) = tagval;
     }
 }
 

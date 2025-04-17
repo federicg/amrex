@@ -201,8 +201,6 @@ public:
 
     int index_core;
 
-    amrex::Vector<amrex::MultiFab> phi_new;
-
 private:
 
     // plotfile prefix and frequency
@@ -275,7 +273,7 @@ private:
 
     // array of multifabs to store the solution at each level of refinement
     // after advancing a level we use "swap".
-    //amrex::Vector<amrex::MultiFab> phi_new;
+    amrex::Vector<amrex::MultiFab> phi_new;
     amrex::Vector<amrex::MultiFab> phi_old;
 
     // this is essentially a 2*DIM integer array storing the physical boundary
