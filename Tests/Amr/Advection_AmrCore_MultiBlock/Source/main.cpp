@@ -22,11 +22,50 @@ static constexpr IntVect e_y = IntVect::TheDimensionVector(iy);
 template <typename T>
 void
 build_ghost_communicators(T& amr_core_adv_bound_1, 
-		          T& amr_core_adv_bound_2, 
-			  T& amr_core_adv_bound_3, 
-			  T& amr_core_adv_bound_4, 
-			  T& amr_core_adv_bound_5, const Box& domain_ref, const int num_ghost)
+                  T& amr_core_adv_bound_2, 
+              T& amr_core_adv_bound_3, 
+              T& amr_core_adv_bound_4, 
+              T& amr_core_adv_bound_5, const Box& domain_ref, const int num_ghost)
 {
+/*
+    // ------------------------------------------------------------------------- // 1
+    {   // Fill right boundary of core_1 with left mirror data of core_2
+        NonLocalBC::MultiBlockIndexMapping dtos{};
+        dtos.permutation = IntVect{AMREX_D_DECL(0, 1, 2)};
+        dtos.offset = (domain_ref.bigEnd(ix) + 1) * e_x;
+        dtos.sign = IntVect{AMREX_D_DECL(1, 1, 1)};
+        Box right_boundary_to_fill_in_x = grow(shift(Box{(domain_ref.bigEnd(ix)-(num_ghost-1)) * e_x, domain_ref.bigEnd()}, num_ghost*e_x), num_ghost*e_y);
+
+        amr_core_adv_bound_1.push_back({dtos, right_boundary_to_fill_in_x, 0});
+    } { // Fill left boundary of core_2 with right mirror data of core_1
+        NonLocalBC::MultiBlockIndexMapping dtos{};
+        dtos.permutation = IntVect{AMREX_D_DECL(0, 1, 2)};
+        dtos.offset = - (domain_ref.bigEnd(ix) + 1) * e_x;
+        dtos.sign = IntVect{AMREX_D_DECL(1, 1, 1)};
+        Box left_boundary_to_fill_in_x = grow(shift(Box{domain_ref.smallEnd(), domain_ref.bigEnd() - (domain_ref.bigEnd(ix)-(num_ghost-1)) * e_x}, -num_ghost*e_x), num_ghost*e_y);  
+
+        amr_core_adv_bound_2.push_back({dtos, left_boundary_to_fill_in_x, 1});
+    } 
+
+    // ------------------------------------------------------------------------- // 2
+    {   // Fill right boundary of core_2 with left mirror data of core_1
+        NonLocalBC::MultiBlockIndexMapping dtos{};
+        dtos.permutation = IntVect{AMREX_D_DECL(0, 1, 2)};
+        dtos.offset = (domain_ref.bigEnd(ix) + 1) * e_x;
+        dtos.sign = IntVect{AMREX_D_DECL(1, 1, 1)};
+        Box right_boundary_to_fill_in_x = grow(shift(Box{(domain_ref.bigEnd(ix)-(num_ghost-1)) * e_x, domain_ref.bigEnd()}, num_ghost*e_x), num_ghost*e_y);
+
+        amr_core_adv_bound_2.push_back({dtos, right_boundary_to_fill_in_x, 0});
+    } { // Fill left boundary of core_1 with right mirror data of core_2
+        NonLocalBC::MultiBlockIndexMapping dtos{};
+        dtos.permutation = IntVect{AMREX_D_DECL(0, 1, 2)};
+        dtos.offset = - (domain_ref.bigEnd(ix) + 1) * e_x;
+        dtos.sign = IntVect{AMREX_D_DECL(1, 1, 1)};
+        Box left_boundary_to_fill_in_x = grow(shift(Box{domain_ref.smallEnd(), domain_ref.bigEnd() - (domain_ref.bigEnd(ix)-(num_ghost-1)) * e_x}, -num_ghost*e_x), num_ghost*e_y);
+
+        amr_core_adv_bound_1.push_back({dtos, left_boundary_to_fill_in_x, 1});
+    } */
+
 
     // ------------------------------------------------------------------------- // 1
     {   // Fill right boundary of core_1 with left mirror data of core_2
@@ -66,7 +105,6 @@ build_ghost_communicators(T& amr_core_adv_bound_1,
 
         amr_core_adv_bound_1.push_back({dtos, left_boundary_to_fill_in_x, 1});
     } 
-
 
     // ------------------------------------------------------------------------- // 3
     {   // Fill right boundary of core_4 with upper mirror data of core_2
@@ -117,7 +155,6 @@ build_ghost_communicators(T& amr_core_adv_bound_1,
         amr_core_adv_bound_1.push_back({dtos, upper_boundary_to_fill_in_y, 2});
     } 
 
-
     // ------------------------------------------------------------------------- // 6
     {   // Fill lower boundary of core_1 with upper mirror data of core_5
         NonLocalBC::MultiBlockIndexMapping dtos{};
@@ -166,9 +203,6 @@ build_ghost_communicators(T& amr_core_adv_bound_1,
         Box lower_boundary_to_fill_in_y = grow(shift(Box{domain_ref.smallEnd(), domain_ref.bigEnd() - (domain_ref.bigEnd(iy)-(num_ghost-1)) * e_y}, -num_ghost*e_y), num_ghost*e_x);
         amr_core_adv_bound_3.push_back({dtos, lower_boundary_to_fill_in_y, 3});
     } 
-
-
-
 }
 
 
@@ -187,36 +221,36 @@ int main(int argc, char* argv[])
         Box domain(IntVect{}, IntVect{AMREX_D_DECL(63, 63, 8)});
 
         RealBox real_box1{{AMREX_D_DECL(-cube_face_length*.5,                  -cube_face_length*.5,                  0.0)}, 
-			  {AMREX_D_DECL(+cube_face_length*.5,                  +cube_face_length*.5,                  1.0)}};
+              {AMREX_D_DECL(+cube_face_length*.5,                  +cube_face_length*.5,                  1.0)}};
 
         RealBox real_box2{{AMREX_D_DECL(-cube_face_length*.5+cube_face_length, -cube_face_length*.5,                  0.0)}, 
-			  {AMREX_D_DECL(+cube_face_length*.5+cube_face_length, +cube_face_length*.5,                  1.0)}};
+              {AMREX_D_DECL(+cube_face_length*.5+cube_face_length, +cube_face_length*.5,                  1.0)}};
 
         RealBox real_box3{{AMREX_D_DECL(-cube_face_length*.5-cube_face_length, -cube_face_length*.5,                  0.0)}, 
-			  {AMREX_D_DECL(+cube_face_length*.5-cube_face_length, +cube_face_length*.5,                  1.0)}};
+              {AMREX_D_DECL(+cube_face_length*.5-cube_face_length, +cube_face_length*.5,                  1.0)}};
 
-        RealBox real_box4{{AMREX_D_DECL(-cube_face_length*.5,    	       +cube_face_length-cube_face_length*.5, 0.0)}, 
-		          {AMREX_D_DECL(+cube_face_length*.5,                  +cube_face_length+cube_face_length*.5, 1.0)}};
+        RealBox real_box4{{AMREX_D_DECL(-cube_face_length*.5,              +cube_face_length-cube_face_length*.5, 0.0)}, 
+                  {AMREX_D_DECL(+cube_face_length*.5,                  +cube_face_length+cube_face_length*.5, 1.0)}};
 
         RealBox real_box5{{AMREX_D_DECL(-cube_face_length*.5,                  -cube_face_length-cube_face_length*.5, 0.0)}, 
-		          {AMREX_D_DECL(+cube_face_length*.5,    	       -cube_face_length+cube_face_length*.5, 1.0)}};
+                  {AMREX_D_DECL(+cube_face_length*.5,              -cube_face_length+cube_face_length*.5, 1.0)}};
 
-	Array<int, AMREX_SPACEDIM> is_periodic1{AMREX_D_DECL(0, 0, 0)};
+        Array<int, AMREX_SPACEDIM> is_periodic1{AMREX_D_DECL(0, 0, 1)};
         Geometry geom1{domain, real_box1, CoordSys::cartesian, is_periodic1};
 
-        Array<int, AMREX_SPACEDIM> is_periodic2{AMREX_D_DECL(0, 0, 0)};
+        Array<int, AMREX_SPACEDIM> is_periodic2{AMREX_D_DECL(0, 0, 1)};
         Geometry geom2{domain, real_box2, CoordSys::cartesian, is_periodic2};
 
-        Array<int, AMREX_SPACEDIM> is_periodic3{AMREX_D_DECL(0, 0, 0)};
+        Array<int, AMREX_SPACEDIM> is_periodic3{AMREX_D_DECL(0, 0, 1)};
         Geometry geom3{domain, real_box3, CoordSys::cartesian, is_periodic3};
         
-        Array<int, AMREX_SPACEDIM> is_periodic4{AMREX_D_DECL(0, 0, 0)};
+        Array<int, AMREX_SPACEDIM> is_periodic4{AMREX_D_DECL(0, 0, 1)};
         Geometry geom4{domain, real_box4, CoordSys::cartesian, is_periodic4};
 
-        Array<int, AMREX_SPACEDIM> is_periodic5{AMREX_D_DECL(0, 0, 0)};
+        Array<int, AMREX_SPACEDIM> is_periodic5{AMREX_D_DECL(0, 0, 1)};
         Geometry geom5{domain, real_box5, CoordSys::cartesian, is_periodic5};
 
-	AmrInfo amr_info{}; 
+        AmrInfo amr_info{}; 
         amr_info.max_level = 1; // maximum level number allowed -- number of levels = max_level + 1
         amr_info.blocking_factor.assign(amr_info.max_level+1, IntVect{AMREX_D_DECL(2, 2, 2)}); // along, x, y, z
         //amr_info.max_grid_size  .assign(amr_info.max_level+1, IntVect{AMREX_D_DECL(4, 4, 4)}); // along, x, y, z
@@ -224,7 +258,7 @@ int main(int argc, char* argv[])
         amr_info.verbose = 1;
         
 
-        //amr_info.refine_grid_layout = 1;
+        amr_info.refine_grid_layout = 1;
         amr_info.n_error_buf.assign(amr_info.max_level+1, IntVect(AMREX_D_DECL(0,0,0)));
 
 
@@ -236,12 +270,14 @@ int main(int argc, char* argv[])
         AmrCoreAdv amr_core_adv_4(geom4, 4, amr_info);
         AmrCoreAdv amr_core_adv_5(geom5, 5, amr_info);
 
-        // set the pointers to the cores
+
+        // set the pointers to the cores 
         amr_core_adv_1.setOtherCore(&amr_core_adv_2, &amr_core_adv_3, &amr_core_adv_4, &amr_core_adv_5);
         amr_core_adv_2.setOtherCore(&amr_core_adv_1, &amr_core_adv_1, &amr_core_adv_4, &amr_core_adv_5);
         amr_core_adv_3.setOtherCore(&amr_core_adv_1, &amr_core_adv_1, &amr_core_adv_4, &amr_core_adv_5);
         amr_core_adv_4.setOtherCore(&amr_core_adv_2, &amr_core_adv_3, &amr_core_adv_1, &amr_core_adv_1);
         amr_core_adv_5.setOtherCore(&amr_core_adv_2, &amr_core_adv_3, &amr_core_adv_1, &amr_core_adv_1);
+
 
         // put here the communication part, 0 is the right boundary of the receiver, 1 is the left boundary of the receiver, 2 is the upper boundary of the receiver, 3, is the lower boundary of the receiver
         int num_ghost = 3;
@@ -255,15 +291,15 @@ int main(int argc, char* argv[])
 
                 // build the communciation
                 build_ghost_communicators(amr_core_adv_1.multi_block_boundaries[lev], 
-					  amr_core_adv_2.multi_block_boundaries[lev], 
-					  amr_core_adv_3.multi_block_boundaries[lev], 
-					  amr_core_adv_4.multi_block_boundaries[lev], 
-					  amr_core_adv_5.multi_block_boundaries[lev], domain_ref, num_ghost);
+                      amr_core_adv_2.multi_block_boundaries[lev], 
+                      amr_core_adv_3.multi_block_boundaries[lev], 
+                      amr_core_adv_4.multi_block_boundaries[lev], 
+                      amr_core_adv_5.multi_block_boundaries[lev], domain_ref, num_ghost);
                 build_ghost_communicators(amr_core_adv_1.multi_block_boundariesMarkers[lev], 
-					  amr_core_adv_2.multi_block_boundariesMarkers[lev], 
-					  amr_core_adv_3.multi_block_boundariesMarkers[lev], 
-					  amr_core_adv_4.multi_block_boundariesMarkers[lev],
-					  amr_core_adv_5.multi_block_boundariesMarkers[lev], domain_ref, 1 );
+                      amr_core_adv_2.multi_block_boundariesMarkers[lev], 
+                      amr_core_adv_3.multi_block_boundariesMarkers[lev], 
+                      amr_core_adv_4.multi_block_boundariesMarkers[lev],
+                      amr_core_adv_5.multi_block_boundariesMarkers[lev], domain_ref, 1 );
  	    }           
         }
 
@@ -281,11 +317,12 @@ int main(int argc, char* argv[])
         amr_core_adv_4.InitData();
         amr_core_adv_5.InitData();
 
+
         int max_finest_cores = std::max({amr_core_adv_1.getFinestLevel(), 
-					 amr_core_adv_2.getFinestLevel(), 
-					 amr_core_adv_3.getFinestLevel(),
-					 amr_core_adv_4.getFinestLevel(),
-					 amr_core_adv_5.getFinestLevel()}); 
+                     amr_core_adv_2.getFinestLevel(), 
+                     amr_core_adv_3.getFinestLevel(),
+                     amr_core_adv_4.getFinestLevel(),
+                     amr_core_adv_5.getFinestLevel()}); 
         for (int ii_re=0; ii_re<max_finest_cores; ii_re++)
         { 
             // check here the presence of cells to be refined at the interface between various cores
@@ -305,9 +342,9 @@ int main(int argc, char* argv[])
             // perform the regridding on each core
             amr_core_adv_1.perform_regrid(amr_core_adv_1.getTnewLev(0));
             amr_core_adv_2.perform_regrid(amr_core_adv_2.getTnewLev(0));
-            amr_core_adv_3.perform_regrid(amr_core_adv_3.getTnewLev(0));
-            amr_core_adv_4.perform_regrid(amr_core_adv_4.getTnewLev(0));
-            amr_core_adv_5.perform_regrid(amr_core_adv_5.getTnewLev(0));
+            amr_core_adv_3.perform_regrid(amr_core_adv_2.getTnewLev(0));
+            amr_core_adv_4.perform_regrid(amr_core_adv_2.getTnewLev(0));
+            amr_core_adv_5.perform_regrid(amr_core_adv_2.getTnewLev(0));
         }
 
         if (amr_core_adv_1.restart_chkfile.empty()) {
@@ -334,15 +371,6 @@ int main(int argc, char* argv[])
         amr_core_adv_4.create_ghost_multifabs(num_ghost); // set the number of ghosts
         amr_core_adv_5.create_ghost_multifabs(num_ghost); // set the number of ghosts
 
-        Real sum_phi = amr_core_adv_1.computeSumLevel0() + 
-		       amr_core_adv_2.computeSumLevel0() +
-		       amr_core_adv_3.computeSumLevel0() +
-		       amr_core_adv_4.computeSumLevel0() +
-		       amr_core_adv_5.computeSumLevel0();
-
-	//std::cout << sum_phi << std::endl;
-
-
         // advance solution to final time
         Real cur_time = amr_core_adv_1.getTnewLev(0);
         int last_plot_file_step = 0;
@@ -353,17 +381,15 @@ int main(int argc, char* argv[])
 
             amr_core_adv_1.ComputeDt(); // be careful here about the sync of dt, for velocity equal to a number everywhere there are no issues right now
             amr_core_adv_2.ComputeDt();
-	    amr_core_adv_3.ComputeDt();
-	    amr_core_adv_4.ComputeDt();
-    	    amr_core_adv_5.ComputeDt();
-
+            amr_core_adv_3.ComputeDt();
+            amr_core_adv_4.ComputeDt();
+            amr_core_adv_5.ComputeDt();
 
             const auto min_dt = std::min({amr_core_adv_1.getLevel0Dt(), 
-			    		  amr_core_adv_2.getLevel0Dt(), 
-			    		  amr_core_adv_3.getLevel0Dt(),
-					  amr_core_adv_4.getLevel0Dt(),
-					  amr_core_adv_5.getLevel0Dt()}); // level 0 dt
-
+                          amr_core_adv_2.getLevel0Dt(), 
+                          amr_core_adv_3.getLevel0Dt(),
+                          amr_core_adv_4.getLevel0Dt(),
+                          amr_core_adv_5.getLevel0Dt()}); // level 0 dt
             amr_core_adv_1.setLevel0Dt(min_dt);
             amr_core_adv_2.setLevel0Dt(min_dt);
             amr_core_adv_3.setLevel0Dt(min_dt);
@@ -381,19 +407,16 @@ int main(int argc, char* argv[])
                 amr_core_adv_4.setDtWithSubcycling();
                 amr_core_adv_5.setDtWithSubcycling();
 
-	//	amr_core_adv_1.timeStepWithSubcycling_original(lev, cur_time, iteration);
-	//	amr_core_adv_2.timeStepWithSubcycling_original(lev, cur_time, iteration);
+//		amr_core_adv_1.timeStepWithSubcycling_original(lev, cur_time, iteration);
+//		amr_core_adv_2.timeStepWithSubcycling_original(lev, cur_time, iteration);
 
 
 		// here it is not working in case of the presence of particles
 		std::vector<int> start_ii;
 		start_ii.assign(amr_info.max_level+1, 1);
-		max_finest_cores = std::max({amr_core_adv_1.getFinestLevel(), 
-					     amr_core_adv_2.getFinestLevel(),
-					     amr_core_adv_3.getFinestLevel(),
-					     amr_core_adv_4.getFinestLevel(),
-					     amr_core_adv_5.getFinestLevel()});
-
+		bool is_entered = false, is_last_step = false;
+		max_finest_cores = std::max(amr_core_adv_1.getFinestLevel(), amr_core_adv_2.getFinestLevel());
+                int re_init_lev = 0;
 		for (int lev=0; lev<=max_finest_cores; lev++)
                 {   
 		    const auto & number_sub_cycl_lev = amr_core_adv_1.getNsubsteps(lev);
@@ -406,9 +429,7 @@ int main(int argc, char* argv[])
                         amr_core_adv_4.reset_level_tagger();
                         amr_core_adv_5.reset_level_tagger();
 
-
-                        // perform the regridding on each core first, 
-			// this operation could modify the max_finest_cores and so the loop upper bound!
+                        // perform the regridding on each core first, this operation could modify the max_finest_cores and so the loop upper bound!
                         amr_core_adv_1.perform_regridWithSubcycling(lev, false);
                         amr_core_adv_2.perform_regridWithSubcycling(lev, false);
                         amr_core_adv_3.perform_regridWithSubcycling(lev, false);
@@ -416,14 +437,14 @@ int main(int argc, char* argv[])
                         amr_core_adv_5.perform_regridWithSubcycling(lev, false);
 
                         max_finest_cores = std::max({amr_core_adv_1.getFinestLevel(), 
-						     amr_core_adv_2.getFinestLevel(),
-						     amr_core_adv_3.getFinestLevel(),
-						     amr_core_adv_4.getFinestLevel(),
-						     amr_core_adv_5.getFinestLevel()});
+                             amr_core_adv_2.getFinestLevel(),
+                             amr_core_adv_3.getFinestLevel(),
+                             amr_core_adv_4.getFinestLevel(),
+                             amr_core_adv_5.getFinestLevel()});
 
-			for (int iii=0; iii<max_finest_cores; iii++)
-			{
-			    // now perform the checking of interface compatibility and fix it in case is needed
+                        for (int iii=0; iii<max_finest_cores; iii++)
+                        {
+    			            // now perform the checking of interface compatibility and fix it in case is needed
                             // check here the presence of cells to be refined at the interface between various cores
                             amr_core_adv_1.check_finer();
                             amr_core_adv_2.check_finer();
@@ -431,28 +452,27 @@ int main(int argc, char* argv[])
                             amr_core_adv_4.check_finer();
                             amr_core_adv_5.check_finer();
 
-
                             // perform now the communication phase
                             amr_core_adv_1.check_finer_communication();
                             amr_core_adv_2.check_finer_communication();
                             amr_core_adv_3.check_finer_communication();
                             amr_core_adv_4.check_finer_communication();
                             amr_core_adv_5.check_finer_communication();
-			    
+    			    
                             // perform the regridding on each core
-			    amr_core_adv_1.perform_regridWithSubcycling(lev, (iii==(max_finest_cores-1) ? true : false));
+                            amr_core_adv_1.perform_regridWithSubcycling(lev, (iii==(max_finest_cores-1) ? true : false));
                             amr_core_adv_2.perform_regridWithSubcycling(lev, (iii==(max_finest_cores-1) ? true : false));
                             amr_core_adv_3.perform_regridWithSubcycling(lev, (iii==(max_finest_cores-1) ? true : false));
                             amr_core_adv_4.perform_regridWithSubcycling(lev, (iii==(max_finest_cores-1) ? true : false));
                             amr_core_adv_5.perform_regridWithSubcycling(lev, (iii==(max_finest_cores-1) ? true : false));
-			}
-			// call function to create new multifab from the stored pointers,
-                	amr_core_adv_1.create_ghost_multifabs(num_ghost); // set the number of ghosts
-                	amr_core_adv_2.create_ghost_multifabs(num_ghost); // set the number of ghosts
-                	amr_core_adv_3.create_ghost_multifabs(num_ghost); // set the number of ghosts
-                	amr_core_adv_4.create_ghost_multifabs(num_ghost); // set the number of ghosts
-                	amr_core_adv_5.create_ghost_multifabs(num_ghost); // set the number of ghosts
-
+                        }
+			 
+    			        // call function to create new multifab from the stored pointers,
+                    	amr_core_adv_1.create_ghost_multifabs(num_ghost); // set the number of ghosts
+                    	amr_core_adv_2.create_ghost_multifabs(num_ghost); // set the number of ghosts
+                        amr_core_adv_3.create_ghost_multifabs(num_ghost); // set the number of ghosts
+                        amr_core_adv_4.create_ghost_multifabs(num_ghost); // set the number of ghosts
+                        amr_core_adv_5.create_ghost_multifabs(num_ghost); // set the number of ghosts
 
                         // apply the numerical scheme, advance only if it deserves 
                         if (lev <= amr_core_adv_1.getFinestLevel()) amr_core_adv_1.timeStepWithSubcycling(lev, ii);
@@ -460,26 +480,24 @@ int main(int argc, char* argv[])
                         if (lev <= amr_core_adv_3.getFinestLevel()) amr_core_adv_3.timeStepWithSubcycling(lev, ii);
                         if (lev <= amr_core_adv_4.getFinestLevel()) amr_core_adv_4.timeStepWithSubcycling(lev, ii);
                         if (lev <= amr_core_adv_5.getFinestLevel()) amr_core_adv_5.timeStepWithSubcycling(lev, ii);
-
 		
-			start_ii[lev] = 1+(ii%number_sub_cycl_lev);
-	  	        if (lev < max_finest_cores   ) break; 
-			if (ii != number_sub_cycl_lev) continue; //check to arrive at the last iterate at the current lev
+			            start_ii[lev] = 1+(ii%number_sub_cycl_lev);
+	  	                if (lev < max_finest_cores   ) break; 
+			            if (ii != number_sub_cycl_lev) continue; //check to arrive at the last iterate at the current lev
 			 
-			amrex::Print() << "Do reflux " << '\n';
+			            amrex::Print() << "Do reflux " << '\n';
 
-			for (int jj=lev-1; jj>=0; jj--)
-			{
-			    if (start_ii[jj+1]==number_sub_cycl_lev) { lev = jj; break; }
-				std::cout << jj << " " << start_ii[jj] << " " << amr_core_adv_1.getFinestLevel() << std::endl;
-			    if (jj<amr_core_adv_1.getFinestLevel()) amr_core_adv_1.perform_reflux_across_lev(jj);
-			    if (jj<amr_core_adv_2.getFinestLevel()) amr_core_adv_2.perform_reflux_across_lev(jj);   
-			    if (jj<amr_core_adv_3.getFinestLevel()) amr_core_adv_3.perform_reflux_across_lev(jj);   
-			    if (jj<amr_core_adv_4.getFinestLevel()) amr_core_adv_4.perform_reflux_across_lev(jj);   
-			    if (jj<amr_core_adv_5.getFinestLevel()) amr_core_adv_5.perform_reflux_across_lev(jj);   
-			}
-			amrex::Print() << "Finish reflux " << '\n';
-		    }
+			            for (int jj=lev-1; jj>=0; jj--)
+			            {
+			                if (start_ii[jj+1]==number_sub_cycl_lev) { lev = jj; break; }
+				            //std::cout << jj << " " << start_ii[jj] << std::endl;
+			                if (jj<amr_core_adv_1.getFinestLevel()) amr_core_adv_1.perform_reflux_across_lev(jj);
+			                if (jj<amr_core_adv_2.getFinestLevel()) amr_core_adv_2.perform_reflux_across_lev(jj);   
+                            if (jj<amr_core_adv_3.getFinestLevel()) amr_core_adv_3.perform_reflux_across_lev(jj);   
+                            if (jj<amr_core_adv_4.getFinestLevel()) amr_core_adv_4.perform_reflux_across_lev(jj);   
+                            if (jj<amr_core_adv_5.getFinestLevel()) amr_core_adv_5.perform_reflux_across_lev(jj);   
+			            }
+		            }
                 } 
 
             } else {
@@ -491,14 +509,12 @@ int main(int argc, char* argv[])
                 amr_core_adv_4.setDtNoSubcycling();
                 amr_core_adv_5.setDtNoSubcycling();
 
-
                 // reset the tagger
                 amr_core_adv_1.reset_level_tagger();
                 amr_core_adv_2.reset_level_tagger();
                 amr_core_adv_3.reset_level_tagger();
                 amr_core_adv_4.reset_level_tagger();
                 amr_core_adv_5.reset_level_tagger();
-
 
                 // perform the regridding on each core first
                 amr_core_adv_1.perform_regrid(cur_time);
@@ -507,13 +523,13 @@ int main(int argc, char* argv[])
                 amr_core_adv_4.perform_regrid(cur_time);
                 amr_core_adv_5.perform_regrid(cur_time);
 
+                //std::cout << "first " << (amr_core_adv_1.computeSumLevel0() + amr_core_adv_2.computeSumLevel0()) << std::endl;
 
                 max_finest_cores = std::max({amr_core_adv_1.getFinestLevel(), 
-				             amr_core_adv_2.getFinestLevel(),
-				             amr_core_adv_3.getFinestLevel(),
-				             amr_core_adv_4.getFinestLevel(),
-				             amr_core_adv_5.getFinestLevel()});
-
+                             amr_core_adv_2.getFinestLevel(),
+                             amr_core_adv_3.getFinestLevel(),
+                             amr_core_adv_4.getFinestLevel(),
+                             amr_core_adv_5.getFinestLevel()});
                 for (int ii=0; ii<max_finest_cores; ii++)
                 { 
                     // check here the presence of cells to be refined at the interface between various cores
@@ -523,14 +539,12 @@ int main(int argc, char* argv[])
                     amr_core_adv_4.check_finer();
                     amr_core_adv_5.check_finer();
 
-
                     // perform now the communciation phase
                     amr_core_adv_1.check_finer_communication();
                     amr_core_adv_2.check_finer_communication();
                     amr_core_adv_3.check_finer_communication();
                     amr_core_adv_4.check_finer_communication();
                     amr_core_adv_5.check_finer_communication();
-
 
                     // perform the regridding on each core
                     amr_core_adv_1.perform_regrid(cur_time);
@@ -547,7 +561,6 @@ int main(int argc, char* argv[])
                 amr_core_adv_4.create_ghost_multifabs(num_ghost); // set the number of ghosts
                 amr_core_adv_5.create_ghost_multifabs(num_ghost); // set the number of ghosts
 
-
                 //std::cout << "second " << (amr_core_adv_1.computeSumLevel0() + amr_core_adv_2.computeSumLevel0()) << std::endl;
 
                 // apply the numerical scheme
@@ -561,18 +574,18 @@ int main(int argc, char* argv[])
  
             // sum phi to check conservation
             Real sum_phi = amr_core_adv_1.computeSumLevel0() + 
-		           amr_core_adv_2.computeSumLevel0() +
-		           amr_core_adv_3.computeSumLevel0() +
-		           amr_core_adv_4.computeSumLevel0() +
-		           amr_core_adv_5.computeSumLevel0();
+                           amr_core_adv_2.computeSumLevel0() +
+                           amr_core_adv_3.computeSumLevel0() +
+                           amr_core_adv_4.computeSumLevel0() +
+                           amr_core_adv_5.computeSumLevel0();
 
             amrex::Print() << "Coarse STEP " << step+1 << " ends." << " TIME = " << cur_time
                         << " DT core 1 = " << amr_core_adv_1.getLevel0Dt() 
-			<< " DT core 2 = " << amr_core_adv_2.getLevel0Dt() 
-			<< " DT core 3 = " << amr_core_adv_3.getLevel0Dt() 
-			<< " DT core 4 = " << amr_core_adv_4.getLevel0Dt() 
-			<< " DT core 5 = " << amr_core_adv_5.getLevel0Dt() 
-			<< " Sum(Phi) = " << sum_phi << '\n';
+            << " DT core 2 = " << amr_core_adv_2.getLevel0Dt() 
+            << " DT core 3 = " << amr_core_adv_3.getLevel0Dt() 
+            << " DT core 4 = " << amr_core_adv_4.getLevel0Dt() 
+            << " DT core 5 = " << amr_core_adv_5.getLevel0Dt() 
+            << " Sum(Phi) = " << sum_phi << '\n';
 
             // sync up time for  various cores 
             amr_core_adv_1.setTnewAllLev(cur_time);
@@ -580,7 +593,6 @@ int main(int argc, char* argv[])
             amr_core_adv_3.setTnewAllLev(cur_time);
             amr_core_adv_4.setTnewAllLev(cur_time);
             amr_core_adv_5.setTnewAllLev(cur_time);
-
 
             if (amr_core_adv_1.getPlot_int() > 0 && (step+1) % amr_core_adv_1.getPlot_int() == 0) 
             {

@@ -67,20 +67,17 @@ AmrCoreAdv::AmrCoreAdv (Geometry const& level_0_geom, int index_core,
 
     facevel.resize(nlevs_max);
 
-/*
     // periodic boundaries
-    int bc_lo[] = {BCType::int_dir, BCType::int_dir, BCType::int_dir};
-    int bc_hi[] = {BCType::int_dir, BCType::int_dir, BCType::int_dir};
-*/
-/*
-    // ext bc
+    //int bc_lo[] = {BCType::int_dir, BCType::int_dir, BCType::int_dir};
+    //int bc_hi[] = {BCType::int_dir, BCType::int_dir, BCType::int_dir};
+
     int bc_lo[] = {BCType::ext_dir, BCType::ext_dir, BCType::ext_dir};
     int bc_hi[] = {BCType::ext_dir, BCType::ext_dir, BCType::ext_dir};
-*/
+
 
     // walls (Neumann)
-    int bc_lo[] = {amrex::BCType::foextrap, amrex::BCType::foextrap, amrex::BCType::foextrap};
-    int bc_hi[] = {amrex::BCType::foextrap, amrex::BCType::foextrap, amrex::BCType::foextrap};
+//    int bc_lo[] = {amrex::BCType::foextrap, amrex::BCType::foextrap, amrex::BCType::foextrap};
+//    int bc_hi[] = {amrex::BCType::foextrap, amrex::BCType::foextrap, amrex::BCType::foextrap};
 
 
     //std::cout << level_0_geom.isPeriodic(0) << " " << BCType::int_dir << " " << BCType::foextrap << std::endl;
@@ -326,12 +323,11 @@ AmrCoreAdv::RemakeLevel (int lev, Real time, const BoxArray& ba,
 void
 AmrCoreAdv::ClearLevel (int lev)
 {
-	//std::cout << "Current Level: " << lev << " " << index_core << std::endl; 
-	//exit(1);
     phi_new[lev].clear();
     phi_old[lev].clear();
     flux_reg[lev].reset(nullptr);
     fillpatcher[lev].reset(nullptr);
+    //fillpatcher_ghost_boundary[lev].reset(nullptr);
 }
 
 // Make a new level from scratch using provided BoxArray and DistributionMapping.
@@ -467,7 +463,7 @@ AmrCoreAdv::ErrorEst (int lev, TagBoxArray& tags, Real /*time*/, int /*ngrow*/)
                 //if (lev==1 && x>0) tagfab(i,j,k) = tagval; 
                 //if (x>0.1) tagfab(i,j,k) = fine_tagval;  
 
-                state_error(i, j, k, tagfab, statefab, taggerfab, phierror, tagval, valid_start, valid_end, is_first, lev);
+                state_error(i, j, k, tagfab, statefab, taggerfab, phierror, tagval, valid_start, valid_end, is_first);
             });
         }
     }
@@ -688,7 +684,57 @@ AmrCoreAdv::FillBoundaryFn::operator()(MultiFab& mf, const std::array<const AmrC
     }
 }
 
+void dummy_cpu_fill_extdir (Box const& bx, Array4<Real> const& dest,
+                                const int dcomp, const int numcomp,
+                                GeometryData const& geom, const Real /*time*/,
+                                const BCRec* bcr, const int bcomp,
+                                const int /*orig_comp*/)
+{
+    // do something for external Dirichlet (BCType::ext_dir or BCType::ext_dir_cc) if there are
+    const auto dom_lo = amrex::lbound(geom.Domain());
+    const auto dom_hi = amrex::ubound(geom.Domain());
 
+    const auto lo = amrex::lbound(bx);
+    const auto hi = amrex::ubound(bx);
+
+#if (AMREX_SPACEDIM == 3)
+    for (int k = lo.z; k <= hi.z; ++k)
+#endif
+#if (AMREX_SPACEDIM >= 2)
+    for (int j = lo.y; j <= hi.y; ++j)
+#endif
+    for (int i = lo.x; i <= hi.x; ++i)
+    {
+        IntVect iv(AMREX_D_DECL(i, j, k));
+        for (int n = 0; n < numcomp; ++n)
+        {
+            const int comp = dcomp + n;
+            const auto bc = bcr[bcomp + n];
+
+            bool is_ext_dir = false;
+#if (AMREX_SPACEDIM >= 1)
+            if ((i < dom_lo.x && (bc.lo(0) == BCType::ext_dir || bc.lo(0) == BCType::ext_dir_cc)) ||
+                (i > dom_hi.x && (bc.hi(0) == BCType::ext_dir || bc.hi(0) == BCType::ext_dir_cc)))
+                is_ext_dir = true;
+#endif
+#if (AMREX_SPACEDIM >= 2)
+            if ((j < dom_lo.y && (bc.lo(1) == BCType::ext_dir || bc.lo(1) == BCType::ext_dir_cc)) ||
+                (j > dom_hi.y && (bc.hi(1) == BCType::ext_dir || bc.hi(1) == BCType::ext_dir_cc)))
+                is_ext_dir = true;
+#endif
+#if (AMREX_SPACEDIM == 3)
+            if ((k < dom_lo.z && (bc.lo(2) == BCType::ext_dir || bc.lo(2) == BCType::ext_dir_cc)) ||
+                (k > dom_hi.z && (bc.hi(2) == BCType::ext_dir || bc.hi(2) == BCType::ext_dir_cc)))
+                is_ext_dir = true;
+#endif
+
+            if (is_ext_dir)
+            {
+                dest(iv, comp) = 0.0;
+            }
+        }
+    }
+}
 
 
 // compute a new multifab by coping in phi from valid region and filling ghost cells
@@ -713,7 +759,7 @@ AmrCoreAdv::FillPatch (int lev, Real time, MultiFab& mf, int icomp, int ncomp,
         }
         else
         {
-            CpuBndryFuncFab bndry_func(nullptr);  // Without EXT_DIR, we can pass a nullptr.
+            CpuBndryFuncFab bndry_func(dummy_cpu_fill_extdir);  // Without EXT_DIR, we can pass a nullptr.
             PhysBCFunct<CpuBndryFuncFab> physbc(geom[lev],bcs,bndry_func);  // here are used the BCs
             amrex::FillPatchSingleLevel(mf, time, smf, stime, 0, icomp, ncomp, geom[lev], physbc, 0);
         }
@@ -756,7 +802,7 @@ AmrCoreAdv::FillPatch (int lev, Real time, MultiFab& mf, int icomp, int ncomp,
         }
         else
         {
-            CpuBndryFuncFab bndry_func(nullptr);  // Without EXT_DIR, we can pass a nullptr.
+            CpuBndryFuncFab bndry_func(dummy_cpu_fill_extdir);  // Without EXT_DIR, we can pass a nullptr.
             PhysBCFunct<CpuBndryFuncFab> cphysbc(geom[lev-1],bcs,bndry_func); // coarse
             PhysBCFunct<CpuBndryFuncFab> fphysbc(geom[lev],bcs,bndry_func);   // fine
 
@@ -970,8 +1016,6 @@ AmrCoreAdv::check_finer()
 
 		//std::cout << refRatio(lev) << std::endl;
                 
-		//fab(current_index) = 1;
-
                 for (int nb = 0; nb < finer_grids.size(); ++nb)
                 {
                     if (finer_grids[nb].contains(fine_idx))
@@ -1323,7 +1367,7 @@ AmrCoreAdv::timeStepNoSubcycling (Real time, int iteration)
     if (Verbose()) {
         for (int lev = 0; lev <= finest_level; lev++)
         {
-           amrex::Print() << "[Core " << index_core << " Level " << lev << " step " << istep[lev]+1 << "] ";
+           amrex::Print() << "[Level " << lev << " step " << istep[lev]+1 << "] ";
            amrex::Print() << "ADVANCE with time = " << t_new[lev]
                           << " dt = " << dt[0] << '\n';
         }
@@ -1357,7 +1401,7 @@ AmrCoreAdv::timeStepNoSubcycling (Real time, int iteration)
     {
         for (int lev = 0; lev <= finest_level; lev++)
         {
-            amrex::Print() << "[Core " << index_core << " Level " << lev << " step " << istep[lev] << "] ";
+            amrex::Print() << "[Level " << lev << " step " << istep[lev] << "] ";
             amrex::Print() << "Advanced " << CountCells(lev) << " cells" << '\n';
         }
     }
@@ -1473,13 +1517,11 @@ AmrCoreAdv::EstTimeStep (int lev, Real time)
        DefineVelocityAtLevel(lev,t_nph_predicted);
     }
 
-    //for (int idim = 0; idim < AMREX_SPACEDIM; ++idim)
+    for (int idim = 0; idim < AMREX_SPACEDIM; ++idim)
     {
-        Real est = std::sqrt(facevel[lev][0].norminf(0,0,true)*facevel[lev][0].norminf(0,0,true) + 
-		             facevel[lev][1].norminf(0,0,true)*facevel[lev][1].norminf(0,0,true));
-        dt_est = amrex::min(dt_est, std::min(dx[0],dx[1])/est);
+        Real est = facevel[lev][idim].norminf(0,0,true);
+        dt_est = amrex::min(dt_est, dx[idim]/est);
     }
-    
 
     dt_est *= cfl;
 

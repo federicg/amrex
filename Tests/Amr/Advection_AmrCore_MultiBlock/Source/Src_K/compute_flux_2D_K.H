@@ -14,8 +14,8 @@ void flux_x(int i, int j, int k,
             amrex::Real dtdx)
 {
     px(i,j,k) = ( (vx(i,j,k) < 0) ?
-                phi(i  ,j,k)/* - 0*slope(i  ,j,k)*(0.5 + 0.5*dtdx*vx(i,j,k))*/ :
-                phi(i-1,j,k)/* + 0*slope(i-1,j,k)*(0.5 - 0.5*dtdx*vx(i,j,k))*/ );
+                phi(i  ,j,k) /*- 0*slope(i  ,j,k)*(0.5 + 0.5*dtdx*vx(i,j,k))*/ :
+                phi(i-1,j,k) /*+ 0*slope(i-1,j,k)*(0.5 - 0.5*dtdx*vx(i,j,k))*/ );
 }
 
 AMREX_GPU_DEVICE
@@ -42,11 +42,9 @@ void create_flux_x(int i, int j, int k,
                    amrex::Array4<amrex::Real const> const& py,
                    amrex::Real dtdy)
 {
-    fx(i,j,k) = px(i,j,k)*vx(i,j,k);
-
-    //fx(i,j,k) = ( (vx(i,j,k) < 0) ?
-    //            px(i,j,k)*vx(i,j,k) /*- 0*0.5*dtdy * ( 0.5*(vy(i  ,j+1,k  ) + vy(i  ,j,k)) * (py(i  ,j+1,k  )-py(i  ,j,k))))*vx(i,j,k)*/ :
-    //            px(i,j,k)*vx(i,j,k) /*- 0*0.5*dtdy * ( 0.5*(vy(i-1,j+1,k  ) + vy(i-1,j,k)) * (py(i-1,j+1,k  )-py(i-1,j,k))))*vx(i,j,k)*/ );
+    fx(i,j,k) = ( (vx(i,j,k) < 0) ?
+                (px(i,j,k) /*- 0*0.5*dtdy * ( 0.5*(vy(i  ,j+1,k  ) + vy(i  ,j,k)) * (py(i  ,j+1,k  )-py(i  ,j,k)))*/)*vx(i,j,k) :
+                (px(i,j,k) /*- 0*0.5*dtdy * ( 0.5*(vy(i-1,j+1,k  ) + vy(i-1,j,k)) * (py(i-1,j+1,k  )-py(i-1,j,k)))*/)*vx(i,j,k) );
 }
 
 AMREX_GPU_DEVICE
@@ -59,14 +57,9 @@ void create_flux_y(int i, int j, int k,
                    amrex::Array4<amrex::Real const> const& px,
                    amrex::Real dtdx)
 {
-    //if(std::isnan(vy(i,j,k)))
-    //std::cout << vy(i,j,k) << " " << i << " " << j << std::endl;
-    //if (std::isnan(vy(i,j,k))) exit(1);
-    fy(i,j,k) = py(i,j,k)*vy(i,j,k);
-
-    //fy(i,j,k) = ( (vy(i,j,k) < 0) ?
-    //            py(i,j,k)*vy(i,j,k) /*- 0*0.5*dtdx * ( 0.5*(vx(i+1,j  ,k  ) + vx(i,j  ,k)) * (px(i+1,j  ,k  )-px(i,j  ,k))))*vy(i,j,k)*/ :
-    //            py(i,j,k)*vy(i,j,k) /*- 0*0.5*dtdx * ( 0.5*(vx(i+1,j-1,k  ) + vx(i,j-1,k)) * (px(i+1,j-1,k  )-px(i,j-1,k))))*vy(i,j,k)*/ );
+    fy(i,j,k) = ( (vy(i,j,k) < 0) ?
+                (py(i,j,k) /*- 0*0.5*dtdx * ( 0.5*(vx(i+1,j  ,k  ) + vx(i,j  ,k)) * (px(i+1,j  ,k  )-px(i,j  ,k)))*/)*vy(i,j,k) :
+                (py(i,j,k) /*- 0*0.5*dtdx * ( 0.5*(vx(i+1,j-1,k  ) + vx(i,j-1,k)) * (px(i+1,j-1,k  )-px(i,j-1,k)))*/)*vy(i,j,k) );
 }
 
 #endif

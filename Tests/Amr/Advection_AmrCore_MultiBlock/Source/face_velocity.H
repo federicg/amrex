@@ -26,50 +26,49 @@ void get_face_velocity_psi(amrex::Box const& bx,
         AMREX_PRAGMA_SIMD
         for (int i = lo.x; i <= hi.x; ++i) {
             Real x = dx[0]*(0.5+i) + prob_lo[0];
-            psi(i,j,0) = std::pow(std::sin(PI*x), 2) * std::pow(std::sin(PI*y), 2)
-                       * std::cos(PI*time/2.0) * 1.0/PI;
+            auto r = std::sqrt(x*x+y*y);
+            psi(i,j,0) = 2*std::log(r*r+1e-3) + 0*std::atan2(y,x);//std::pow(std::sin(PI*x), 2) * std::pow(std::sin(PI*y), 2) * std::cos(PI*time/2.0) * 1.0/PI;
         }
     }
 }
 
 AMREX_GPU_DEVICE
 AMREX_FORCE_INLINE
-void get_face_velocity_x(int i, int j, int k,
+void get_face_velocity_x(int i, int j, int k, const int index_core, amrex::GpuArray<amrex::Real,AMREX_SPACEDIM> const& prob_lo, 
+                         const amrex::Real time,
                          amrex::Array4<amrex::Real> const& vx,
-			 const amrex::Real time,
-			 const int index_core,
                          amrex::Array4<amrex::Real> const& psi,
-                         amrex::Real dy)
+                         amrex::GpuArray<amrex::Real,AMREX_SPACEDIM> const& dx)
 {
-    constexpr amrex::Real omega = 1;
-    vx(i,j,k) = -omega*std::sin(omega*time);
-    /*
-    if (index_core==1) vx(i,j,k) = -1;
-    if (index_core==3) vx(i,j,k) = .1;
-    if (index_core==2) vx(i,j,k) = 0;
-    if (index_core==5) vx(i,j,k) = -1;
-    if (index_core==4) vx(i,j,k) = 1;*/
-    //vx(i,j,k) =  -( (psi(i,j+1,0)+psi(i-1,j+1,0)) - (psi(i,j-1,0)+psi(i-1,j-1,0)) ) * (0.25/dy);
+    auto y = prob_lo[1] + (0.5+j)*dx[1];
+    auto x = prob_lo[0] + (0.5+i)*dx[0];
+    auto theta = std::atan2(y,x);
+    vx(i,j,k) =  0.0;
+    if (index_core==1) vx(i,j,k) =  1.0;
+    if (index_core==2) vx(i,j,k) =  0.0;
+    if (index_core==3) vx(i,j,k) =  0.0;
+    if (index_core==4) vx(i,j,k) =  -1.0;
+    if (index_core==5) vx(i,j,k) =  1.0;
+    //vx(i,j,k) =  -std::sin(theta)-.25*std::cos(theta);//-( (psi(i,j+1,0)+psi(i-1,j+1,0)) - (psi(i,j-1,0)+psi(i-1,j-1,0)) ) * (0.25/dy);
 }
 
 AMREX_GPU_DEVICE
 AMREX_FORCE_INLINE
-void get_face_velocity_y(int i, int j, int k,
+void get_face_velocity_y(int i, int j, int k, const int index_core, amrex::GpuArray<amrex::Real,AMREX_SPACEDIM> const& prob_lo, 
+                         const amrex::Real time,
                          amrex::Array4<amrex::Real> const& vy,
-			 const amrex::Real time,
-			 const int index_core,
                          amrex::Array4<amrex::Real> const& psi,
-                         amrex::Real dx)
+                         amrex::GpuArray<amrex::Real,AMREX_SPACEDIM> const& dx)
 {
-    constexpr amrex::Real omega = 1;
-    vy(i,j,k) = index_core==4 ? -omega*std::sin(omega*time) : omega*std::cos(omega*time);
-    /*
-    if (index_core==1) vy(i,j,k) = 0;
-    if (index_core==3) vy(i,j,k) = 1;
-    if (index_core==2) vy(i,j,k) = -1;
-    if (index_core==5) vy(i,j,k) = 0;
-    if (index_core==4) vy(i,j,k) = -.1;*/
-    //vy(i,j,k) =  0.0;// ( (psi(i+1,j,0)+psi(i+1,j-1,0)) - (psi(i-1,j,0)+psi(i-1,j-1,0)) ) * (0.25/dx);
+    auto y = prob_lo[1] + (0.5+j)*dx[1];
+    auto x = prob_lo[0] + (0.5+i)*dx[0];
+    auto theta = std::atan2(y,x); 
+    vy(i,j,k) =  0.0;
+    if (index_core==1) vy(i,j,k) =  1.0;
+    if (index_core==2) vy(i,j,k) =  1.0;
+    if (index_core==3) vy(i,j,k) =  -1.0;
+    if (index_core==4) vy(i,j,k) =  0.0;
+    //vy(i,j,k) = std::cos(theta)-.25*std::sin(theta);//( (psi(i+1,j,0)+psi(i+1,j-1,0)) - (psi(i-1,j,0)+psi(i-1,j-1,0)) ) * (0.25/dx);
 }
 
 AMREX_GPU_DEVICE

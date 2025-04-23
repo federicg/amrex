@@ -20,17 +20,14 @@ initdata(amrex::Box const& bx, amrex::Array4<amrex::Real> const& phi,
 
     constexpr double R = 0.15;
 
-    Real center[] = {-1, 0}; //{1, 0};
-
-
+    Real center[] = {1, 0}; //{1, 0};
 
     for         (int k = lo.z; k <= hi.z; ++k) {
         for     (int j = lo.y; j <= hi.y; ++j) {
             Real y = prob_lo[1] + (0.5+j)*dx[1];
                 for (int i = lo.x; i <= hi.x; ++i) {
                     Real x = prob_lo[0] + (0.5+i)*dx[0];
-		
-		    phi(i,j,k) = 0;
+
                     Real r2 = std::sqrt((x-center[0]) * (x-center[0]) + (y-center[1]) * (y-center[1]));
                     // Gaussian function with smooth transition
                     Real sigma = R / 3.0; // Adjust smoothness
