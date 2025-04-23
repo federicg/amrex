@@ -1215,7 +1215,7 @@ std::cout << index_core << " " << lev << std::endl;
 void
 AmrCoreAdv::perform_reflux_across_lev(int lev)
 {
-    if (do_reflux)
+    if (do_reflux && flux_reg[lev+1])
     {
         // update lev based on coarse-fine flux mismatch
         flux_reg[lev+1]->Reflux(phi_new[lev], 1.0, 0, 0, phi_new[lev].nComp(), geom[lev]);
